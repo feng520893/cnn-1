@@ -452,7 +452,10 @@ bool InitCUDA()
 int main()
 {
 	if(!InitCUDA())
+	{
+		system("pause");
 		return 0;
+	}
 	TCHAR path[256]={0};
 	GetModuleFileName(NULL,path, MAX_PATH); 
 	(_tcsrchr(path, _T('\\')))[1] = 0;

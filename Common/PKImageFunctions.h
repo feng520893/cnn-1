@@ -12,8 +12,8 @@ namespace pk
 		BILINEAR,
 	};
 
-	int SaveImage(const char*path,CpkMat& src);
-	int loadImage(const char*path,CpkMat& dest);
+	int imwrite(const char*path,CpkMat& src);
+	int imread(const char*path,CpkMat& dest);
 
 	//获取RGB三通道
 	int GetRGBchannel(CpkMat&src,CpkMat& colorR,CpkMat&colorG,CpkMat& colorB);

@@ -1,5 +1,7 @@
 #include "PKImageFunctions.h"
+#include "./Jpeg/Jpeg.h"
 #include<cmath>
+#include <string>
 namespace pk
 {
 	#pragma pack (2) //2字节对齐
@@ -27,10 +29,8 @@ namespace pk
 			unsigned long biClrImportant;
 		}BITMAPINFOHEADER;
 
-	int SaveImage(const char*path,CpkMat& src)
+	int SaveBmp(const char*path,CpkMat& src)
 	{
-		if(src.GetType()!=CpkMat::DATA_BYTE)
-			return PK_NOT_ALLOW_OPERATOR;
 		FILE *fp;
 		int err=fopen_s(&fp,path,"wb");
 		if(err!=0)
@@ -74,50 +74,51 @@ namespace pk
 					rgb[i*4+k]=i;
 			fwrite(rgb,1,1024,fp);
 		}
-		//写位图数据
-/*		BYTE* buff=new BYTE[src.Row*src.Col*src.Depth];
-		memset(buff,0,src.Row*src.Col*src.Depth);
-		BYTE* pData=buff;
-		if(src.GetType()==CpkMat::DATA_DOUBLE)
-		{
-			double* ppData=src.GetData<double>();
-			int step=src.Col;
-			pData += (src.Row - 1)*step;
-			for(int i = 0; i <src.Row; i++, pData -=step,ppData+=step)
-			{
-				for(int j=0;j<step;j++)
-					pData[j]=ppData[j];
-			}
-		}
-		else if(src.GetType()==CpkMat::DATA_INT)
-		{
-			for(int i=0;i<src.Row*src.Col*src.Depth;i++)
-				pData[i]=(BYTE)src.GetData<int>()[i];
-		}
-		else
-		{
-			BYTE* ppData=src.GetData<BYTE>();
-			int step=src.Col;
-			pData += (src.Row - 1)*step;
-			for(int i = 0; i <src.Row; i++, pData -=step,ppData+=step)
-			{
-				memcpy(pData,ppData,step);
-			}
-		}
-		fwrite(buff,1,src.Row*src.Col,fp);*/
 		fwrite(src.GetData<BYTE>(),1,src.Row*src.lineSize,fp);
 		fclose(fp);
-//		if(buff!=NULL)
-//			delete [] buff;
 		return PK_SUCCESS;
 	}
 
-	int loadImage(const char*path,CpkMat& dest)
+	int saveJpg(const char* path,CpkMat&src)
 	{
-		FILE *fp;
-		int err=fopen_s(&fp,path,"rb+");
-		if(err!=0)
-			return PK_NOT_FILE;
+		int nRet=PK_SUCCESS;
+		BYTE* buff=NULL;
+		unsigned long outSize=0;
+		int size=(src.lineSize*src.Row);
+		if(JpegCompression(&buff,outSize,src.Col,src.Row,src.Depth*8,95,src.GetData<BYTE>(),size))
+		{
+			FILE *fp;
+			fp=fopen(path,"wb");
+			if(fp==NULL)
+				return PK_OPEN_FILE_ERROR;
+			fwrite(buff,1,outSize,fp);
+			fclose(fp);
+		}
+		if(buff)
+			delete [] buff;
+		return nRet;
+	}
+
+	int imwrite(const char*path,CpkMat& src)
+	{
+		if(src.GetType()!=CpkMat::DATA_BYTE)
+			return PK_NOT_ALLOW_OPERATOR;
+		int nRet=PK_SUCCESS;
+		std::string suffix;
+		suffix=path;
+		int index=suffix.find('.')+1;
+		suffix=suffix.substr(index,suffix.length()-index);
+		if(suffix=="jpg"||suffix=="JPG"||suffix=="jpeg"||suffix=="JPEG")
+			nRet=saveJpg(path,src);
+		else if(suffix=="bmp"||suffix=="BMP")
+			nRet=SaveBmp(path,src);
+		else
+			nRet=PK_NOT_SUPPORT_FORMAT;
+		return nRet;
+	}
+
+	int loadBmp(FILE* fp,CpkMat& dest)
+	{
 
 		BITMAPFILEHEADER fileHead;
 
@@ -131,21 +132,68 @@ namespace pk
 			fread(rgb,1,1024,fp);
 		int lineByte=(Infohead.biWidth*Infohead.biBitCount/8+3)/4*4;
 		//写位图数据
-		dest.Resize(Infohead.biHeight,lineByte,1,CpkMat::DATA_BYTE);
-		dest.Depth=Infohead.biBitCount/8;
-		dest.Col=Infohead.biWidth;
+		dest.Resize(Infohead.biHeight,Infohead.biWidth,Infohead.biBitCount/8,CpkMat::DATA_BYTE);
+		
 		BYTE* buff=dest.GetData<BYTE>();
 		BYTE* pData=buff;
 		
 		fread(buff,1,Infohead.biHeight*lineByte,fp);
-		fclose(fp);
 		return PK_SUCCESS;
 	}
 
-	int ReadImageRect(CpkMat&dest,int destWidth,const char*data,int x,int y,int srcWidth,int height)
+	int loadJpeg(FILE* fp,CpkMat& dest)
 	{
-		int lineByte=(destWidth+3)/4*4;
-		dest.Resize(height,lineByte,1,CpkMat::DATA_BYTE);
+		int nRet;
+		fseek(fp,0,SEEK_END);
+		int size=ftell(fp);
+		fseek(fp,0,SEEK_SET);
+		unsigned char* fileData=new unsigned char[size];
+		if(fileData==NULL)
+			return PK_ALLOCATE_MEMORY_FAIL;
+		fread(fileData,1,size,fp);
+
+		BYTE* buffer=NULL;
+		unsigned long outSize=0;
+		int outW=0,outH=0,outBit=0;
+		
+		if(JpegDecompress(&buffer,outSize,outW,outH,outBit,fileData,size))
+			nRet=dest.Resize(outH,outW,outBit,CpkMat::DATA_BYTE,buffer);
+		else
+			nRet=PK_FAIL;
+		if(fileData)
+			delete [] fileData;
+		if(buffer)
+			delete [] buffer;
+		return nRet;
+	}
+
+	int imread(const char*path,CpkMat& dest)
+	{
+		FILE *fp;
+		fp=fopen(path,"rb+");
+		if(fp==NULL)
+			return PK_NOT_FILE;
+		int nRet=PK_SUCCESS;
+		int c1 = getc(fp);
+		int c2 = getc(fp);
+		fseek(fp,0,SEEK_SET);
+		if (c1 == 0xFF && c2 == 0xD8)
+			nRet=loadJpeg(fp,dest);
+		else if(c1==0x42&&0x4D)
+			nRet=loadBmp(fp,dest);
+		else
+			nRet=PK_NOT_SUPPORT_FORMAT;
+		fclose(fp);
+		return nRet;
+	}
+
+	int ReadImageRect(CpkMat&dest,int destWidth,const char*data,int x,int y,int srcWidth,int height,int bit)
+	{
+		int lineSrcByte=(destWidth*(bit/8)+3)/4*4;
+		int lineByte=(destWidth*(bit/8)+3)/4*4;
+		if(x+lineByte>lineSrcByte)
+			return PK_NOT_ALLOW_OPERATOR;
+		dest.Resize(height,destWidth,bit/8,CpkMat::DATA_BYTE);
 		BYTE* pData=dest.GetData<BYTE>();
 		for(int i=y;i<height+y;i++)
 			for(int j=x;j<lineByte+x;j++)

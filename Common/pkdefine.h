@@ -28,6 +28,7 @@ typedef long LONG;
 #define PK_CHECK_NOT_FACE        -8
 #define PK_NOT_REAL_FACE         -9
 #define PK_NOT_DATA              -10
+#define PK_NOT_SUPPORT_FORMAT    -11
 
 
 //ÍøÂç²¿·Ö

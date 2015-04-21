@@ -438,10 +438,9 @@ void CpkMat::print()
 int CpkMat::Resize(int row,int col,int depth,DATA_TYPE type,void* data/* =NULL */)
 {
 	Row=row;
-	Col=col;
+	lineSize=Col=col;
 	Depth=depth;
 	m_dataType=type;
-	lineSize=(col*depth+3)/4*4;
 	if(DataUnion.m_pByte!=NULL)
 	{
 		switch(type)
@@ -469,8 +468,9 @@ int CpkMat::Resize(int row,int col,int depth,DATA_TYPE type,void* data/* =NULL *
 			memcpy(DataUnion.m_pInt,data,sizeof(int)*Row*Col*depth);
 			break;
 		case DATA_BYTE:
-			DataUnion.m_pByte=new BYTE[Row*Col*depth];
-			memcpy(DataUnion.m_pByte,data,sizeof(BYTE)*Row*Col*depth);
+			lineSize=(col*depth+3)/4*4;
+			DataUnion.m_pByte=new BYTE[Row*lineSize];
+			memcpy(DataUnion.m_pByte,data,sizeof(BYTE)*Row*lineSize);
 			break;
 		case DATA_DOUBLE:
 			DataUnion.m_pDouble=new double[Row*Col*depth];
@@ -487,8 +487,9 @@ int CpkMat::Resize(int row,int col,int depth,DATA_TYPE type,void* data/* =NULL *
 			memset(DataUnion.m_pInt,0,sizeof(int)*Row*Col*depth);
 			break;
 		case DATA_BYTE:
-			DataUnion.m_pByte=new BYTE[Row*Col*depth];
-			memset(DataUnion.m_pByte,0,sizeof(BYTE)*Row*Col*depth);
+			lineSize=(col*depth+3)/4*4;
+			DataUnion.m_pByte=new BYTE[Row*lineSize];
+			memset(DataUnion.m_pByte,0,sizeof(BYTE)*Row*lineSize);
 			break;
 		case DATA_DOUBLE:
 			DataUnion.m_pDouble=new double[Row*Col*depth];
@@ -1004,9 +1005,9 @@ int CpkMat::getRow(CpkMat&dest,int nRow)
 
 int CpkMat::GetData(CpkMat& dest,int rowS,int rowE,int colS,int colE)
 {
-	int arraySize=(rowE-rowS+1)*(colE-colS+1)*Depth+1;
-	int dCol=colE-colS+1;
-	if(colE>Col||rowE>Row)
+	int arraySize=(rowE-rowS+1)*(colE-colS+1)*Depth;
+	int dCol=colE-colS;
+	if(colE>Col||rowE>Row||dCol==0)
 		return PK_NOT_ALLOW_OPERATOR;
 
 	switch(m_dataType)
@@ -1039,7 +1040,7 @@ int CpkMat::GetData(CpkMat& dest,int rowS,int rowE,int colS,int colE)
 						pdata[i*dCol+j+n]=pSrc[(i+rowS)*Col+j+colS+n];
 				}
 			}
-			dest.Resize(rowE-rowS+1,dCol,Depth,m_dataType,pdata);
+			dest.Resize(rowE-rowS,dCol,Depth,m_dataType,pdata);
 			delete [] pdata;
 			break;
 		}

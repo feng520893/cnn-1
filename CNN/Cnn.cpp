@@ -112,7 +112,7 @@ int CCNN::cnnTrain(Data&datas,std::vector<int>& labels)
 			if(++it == momIncrease)
 				mom = m_sgd.momentum;
 			CpkMat tmp;
-			rp.GetData(tmp,0,0,s,s+m_sgd.minibatch-1);
+			rp.GetData(tmp,0,0,s,s+m_sgd.minibatch);
 			int* pdata=tmp.GetData<int>();
 			for(int i=0;i<m_sgd.minibatch;i++,pdata++)
 			{

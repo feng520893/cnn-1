@@ -135,7 +135,8 @@ namespace pk
 		dest.Resize(Infohead.biHeight,Infohead.biWidth,Infohead.biBitCount/8,CpkMat::DATA_BYTE);
 		
 		BYTE* buff=dest.GetData<BYTE>();
-		BYTE* pData=buff;
+
+		fseek(fp,fileHead.bfOffBits,SEEK_SET);
 		
 		fread(buff,1,Infohead.biHeight*lineByte,fp);
 		return PK_SUCCESS;

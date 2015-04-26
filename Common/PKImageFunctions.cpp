@@ -135,9 +135,8 @@ namespace pk
 		dest.Resize(Infohead.biHeight,Infohead.biWidth,Infohead.biBitCount/8,CpkMat::DATA_BYTE);
 		
 		BYTE* buff=dest.GetData<BYTE>();
-
-		fseek(fp,fileHead.bfOffBits,SEEK_SET);
 		
+		fseek(fp,fileHead.bfOffBits,SEEK_SET);
 		fread(buff,1,Infohead.biHeight*lineByte,fp);
 		return PK_SUCCESS;
 	}
@@ -209,8 +208,7 @@ namespace pk
 		
 		if(src.Depth==1)
 		{
-			tmp.Resize(src.Row,src.lineSize,1,CpkMat::DATA_BYTE);
-			tmp.Col=src.Col;
+			tmp.Resize(src.Row,src.Col,1,CpkMat::DATA_BYTE);
 			BYTE* pDest=tmp.GetData<BYTE>();
 			for(int i=0;i<src.Row;i++)
 				for(int j=0;j<src.lineSize;j++)
@@ -221,8 +219,7 @@ namespace pk
 			int nPixelByte=src.Depth;
 			int nLineByteIn=src.lineSize;
 			int nLineByteOut=(src.Col+3)/4*4;
-			tmp.Resize(src.Row,nLineByteOut,1,CpkMat::DATA_BYTE);
-			tmp.Col=src.Col;
+			tmp.Resize(src.Row,src.Col,1,CpkMat::DATA_BYTE);
 			BYTE* pDest=tmp.GetData<BYTE>();
 			for(int i=0;i<src.Row;i++)
 			{
@@ -235,8 +232,7 @@ namespace pk
 				}
 			}
 		}
-		dest.Resize(tmp.Row,tmp.lineSize,tmp.Depth,tmp.GetType(),tmp.GetData<BYTE>());
-		dest.Col=tmp.Col;
+		dest=tmp;
 		return true;
 	}
 
@@ -299,7 +295,7 @@ namespace pk
 		BYTE* pSrc=src.GetData<BYTE>();
 		int lineByteIn=(src.Col*src.Depth+3)/4*4;
 		int lineByteOut=(widthOut*src.Depth+3)/4*4;
-		tmp.Resize(heighOut,lineByteOut/src.Depth,src.Depth,src.GetType());
+		tmp.Resize(heighOut,widthOut,src.Depth,src.GetType());
 		BYTE* pDest=tmp.GetData<BYTE>();
 		if(type==NEAREST)
 		{

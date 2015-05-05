@@ -1,5 +1,6 @@
 #include "CpkMat.h"
 #include "mem.h"
+#include"mat_cuda.cuh"
 
 CpkMat::CpkMat()
 {
@@ -101,7 +102,7 @@ CpkMat CpkMat::operator* (CpkMat& mx1)
 		break;
 	case DATA_DOUBLE:
 		{
-			double* pX1=GetData<double>();
+/*			double* pX1=GetData<double>();
 			double* pX2=mx1.GetData<double>();
 			double* pDest=mxTmp.GetData<double>();
 			for (int i = 0; i <Row; i++)   
@@ -113,7 +114,25 @@ CpkMat CpkMat::operator* (CpkMat& mx1)
 						pDest[i*mxTmp.Col+k]+= pX2[j*mx1.Col+k] * pX1[i*Col+j];   
 					}   
 				}
-			}   
+			}*/
+			double* ss=NULL;
+			cudaError_t state=cudaMalloc((void**)&ss,sizeof(double)*Col*Row);
+			state=cudaMemcpy(ss,GetData<double>(),sizeof(double)*Col*Row,cudaMemcpyHostToDevice);
+
+			double* vv=NULL;
+			state=cudaMalloc((void**)&vv,sizeof(double)*mx1.Col*mx1.Row);
+			state=cudaMemcpy(vv,mx1.GetData<double>(),sizeof(double)*mx1.Col*mx1.Row,cudaMemcpyHostToDevice);
+
+			double* cv=NULL;
+			state=cudaMalloc((void**)&cv,sizeof(double)*mxTmp.Col*mxTmp.Row);
+			state=cudaMemset(cv,0,sizeof(double)*mxTmp.Col*mxTmp.Row);
+			matrixMul(ss,Row,Col,vv,mx1.Row,mx1.Col,cv,mxTmp.Col);
+			state=cudaMemcpy(mxTmp.GetData<double>(),cv,sizeof(double)*Row*mx1.Col,cudaMemcpyDeviceToHost);
+
+			cudaFree(ss);
+			cudaFree(vv);
+			cudaFree(cv);
+
 		}
 		break;
 	case DATA_INT:
@@ -554,13 +573,28 @@ int CpkMat::Resize(int row,int col,int depth,DATA_TYPE type,void* data/* =NULL *
 
 int CpkMat::Resize(DATA_TYPE type)
 {
-	if(m_dataType==type||m_dataType==DATA_DOUBLE)
+	if(m_dataType==type)
 		return PK_NOT_ALLOW_OPERATOR;
-	double* pData=new double[Row*Col];
-	for(int i=0;i<Row*Col;i++)
-		pData[i]=(double)DataUnion.m_pByte[i];
-	this->Resize(Row,Col,Depth,DATA_DOUBLE,pData);
-	delete [] pData;
+	switch(type)
+	{
+	case DATA_DOUBLE:
+		{
+			double* pData=new double[Row*Col];
+			for(int i=0;i<Row*Col;i++)
+				pData[i]=(double)DataUnion.m_pByte[i];
+			Resize(Row,Col,Depth,type,pData);
+			delete [] pData;
+			break;
+		}
+	case DATA_BYTE:
+		{
+			BYTE* pData=new BYTE[Row*Col];
+			for(int i=0;i<Row*Col;i++)
+				pData[i]=(BYTE)abs(DataUnion.m_pDouble[i]);
+			Resize(Row,Col,Depth,type,pData);
+			delete [] pData;
+		}
+	}
 
 	return PK_SUCCESS;
 }

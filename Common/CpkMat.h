@@ -4,7 +4,7 @@
 class CpkMat
 {
 public:
-	enum DATA_TYPE{DATA_BYTE,DATA_DOUBLE,DATA_INT};
+	enum DATA_TYPE{DATA_NULL,DATA_BYTE,DATA_DOUBLE,DATA_INT};
 	CpkMat(void);
 	CpkMat(const CpkMat& s);
 	CpkMat(int row,int col,int depth,DATA_TYPE type,void* data=NULL);
@@ -97,4 +97,9 @@ private:
 		double* m_pDouble;
 		int*  m_pInt;
 	}DataUnion;
+
+	int* m_refCount;
+
+	int addRef(int addCount); 
+	int release();
 };

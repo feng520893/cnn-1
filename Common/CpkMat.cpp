@@ -1,45 +1,77 @@
 #include "CpkMat.h"
+#include "mem.h"
 
 CpkMat::CpkMat()
 {
-	Col=Row=Depth=0;
+	lineSize=Col=Row=Depth=0;
 	DataUnion.m_pByte=NULL;//共享内存，初始化化1个就行
+	m_refCount=NULL;
+	m_dataType=DATA_NULL;
 }
 
-CpkMat::CpkMat(const CpkMat& s)
+CpkMat::CpkMat(const CpkMat& s):Col(s.Col),Row(s.Row),Depth(s.Depth)
+,lineSize(s.lineSize),m_refCount(s.m_refCount),m_dataType(s.m_dataType)
 {
-	DataUnion.m_pByte=NULL;//共享内存，初始化化1个就行
-	Resize(s.Row,s.Col,s.Depth,s.m_dataType,s.DataUnion.m_pByte);
+	DataUnion.m_pByte=s.DataUnion.m_pByte;//共享内存，初始化化1个就行
+	addRef(1);
 }
 
 CpkMat::CpkMat(int row,int col,int depth,DATA_TYPE type,void* data/* =NULL */)
 {
+	m_refCount=NULL;
 	DataUnion.m_pByte=NULL;//共享内存，初始化化1个就行
 	Resize(row,col,depth,type,data);
 }
 
 CpkMat::~CpkMat()
 {
+	if(m_refCount&&addRef(-1)==1)
+		release();
+}
+
+int CpkMat::addRef(int addCount)
+{
+	int tmp=*m_refCount;
+	*m_refCount+=addCount;
+	return tmp;
+}
+
+int CpkMat::release()
+{
 	if(DataUnion.m_pByte!=NULL)
 	{
 		switch(m_dataType)
 		{
 		case DATA_INT:
-			delete [] DataUnion.m_pInt;
+			fastFree(DataUnion.m_pInt);
 			break;
 		case DATA_BYTE:
-			delete [] DataUnion.m_pByte;
+			fastFree(DataUnion.m_pByte);			
 			break;
 		case DATA_DOUBLE:
-			delete [] DataUnion.m_pDouble;
+			fastFree(DataUnion.m_pDouble);
 			break;
 		}
+		DataUnion.m_pByte=NULL;
 	}
+	return PK_SUCCESS;
 }
 
 CpkMat& CpkMat::operator= (const CpkMat &s)
 {
-	Resize(s.Row,s.Col,s.Depth,s.m_dataType,s.DataUnion.m_pByte);
+	if(this!=&s)
+	{
+		if(m_refCount&&addRef(-1)==1)
+			release();
+		m_refCount=s.m_refCount;
+		Row=s.Row;
+		Col=s.Col;
+		Depth=s.Depth;
+		lineSize=s.lineSize;
+		m_dataType=s.m_dataType;
+		DataUnion.m_pByte=s.DataUnion.m_pByte;//共享内存，初始化化1个就行
+		addRef(1);
+	}
 	return *this;
 }
 
@@ -437,43 +469,48 @@ void CpkMat::print()
 
 int CpkMat::Resize(int row,int col,int depth,DATA_TYPE type,void* data/* =NULL */)
 {
+	if(m_refCount&&addRef(-1)==1)
+		release();
 	Row=row;
 	lineSize=Col=col;
 	Depth=depth;
 	m_dataType=type;
-	if(DataUnion.m_pByte!=NULL)
-	{
-		switch(type)
-		{
-		case DATA_INT:
-			delete [] DataUnion.m_pInt;
-			DataUnion.m_pInt=NULL;
-			break;
-		case DATA_BYTE:
-			delete [] DataUnion.m_pByte;
-			DataUnion.m_pByte=NULL;
-			break;
-		case DATA_DOUBLE:
-			delete [] DataUnion.m_pDouble;
-			DataUnion.m_pDouble=NULL;
-			break;
-		}
-	}
+	
+	size_t totalsize=0;
+	BYTE* pTmp;
 	if(data!=NULL)
 	{
 		switch(type)
 		{
 		case DATA_INT:
-			DataUnion.m_pInt=new int[Row*Col*depth];
+//			DataUnion.m_pInt=new int[Row*Col*depth];
+			totalsize = alignSize(sizeof(int)*Row*Col*depth, (int)sizeof(*m_refCount));
+			pTmp= (BYTE*)fastMalloc(totalsize + (int)sizeof(*m_refCount));
+			m_refCount = (int*)(pTmp + totalsize);
+			*m_refCount = 1;
+
+			DataUnion.m_pInt=(int*)pTmp;
 			memcpy(DataUnion.m_pInt,data,sizeof(int)*Row*Col*depth);
 			break;
 		case DATA_BYTE:
 			lineSize=(col*depth+3)/4*4;
-			DataUnion.m_pByte=new BYTE[Row*lineSize];
+//			DataUnion.m_pByte=new BYTE[Row*lineSize];
+			totalsize = alignSize(sizeof(BYTE)*Row*lineSize, (int)sizeof(*m_refCount));
+			DataUnion.m_pByte= (BYTE*)fastMalloc(totalsize + (int)sizeof(*m_refCount));
+			m_refCount = (int*)(DataUnion.m_pByte + totalsize);
+			*m_refCount = 1;
+
+
 			memcpy(DataUnion.m_pByte,data,sizeof(BYTE)*Row*lineSize);
 			break;
 		case DATA_DOUBLE:
-			DataUnion.m_pDouble=new double[Row*Col*depth];
+//			DataUnion.m_pDouble=new double[Row*Col*depth];
+			totalsize = alignSize(sizeof(double)*Row*Col*depth, (int)sizeof(*m_refCount));
+			pTmp= (BYTE*)fastMalloc(totalsize + (int)sizeof(*m_refCount));
+			m_refCount = (int*)(pTmp + totalsize);
+			*m_refCount = 1;
+			DataUnion.m_pDouble=(double*)pTmp;
+
 			memcpy(DataUnion.m_pDouble,data,sizeof(double)*Row*Col*depth);
 			break;
 		}
@@ -483,16 +520,31 @@ int CpkMat::Resize(int row,int col,int depth,DATA_TYPE type,void* data/* =NULL *
 		switch(type)
 		{
 		case DATA_INT:
-			DataUnion.m_pInt=new int[Row*Col*depth];
+//			DataUnion.m_pInt=new int[Row*Col*depth];
+			totalsize = alignSize(sizeof(int)*Row*Col*depth, (int)sizeof(*m_refCount));
+			pTmp= (BYTE*)fastMalloc(totalsize + (int)sizeof(*m_refCount));
+			m_refCount = (int*)(pTmp + totalsize);
+			*m_refCount = 1;
+			DataUnion.m_pInt=(int*)pTmp;
+
 			memset(DataUnion.m_pInt,0,sizeof(int)*Row*Col*depth);
 			break;
 		case DATA_BYTE:
 			lineSize=(col*depth+3)/4*4;
-			DataUnion.m_pByte=new BYTE[Row*lineSize];
+//			DataUnion.m_pByte=new BYTE[Row*lineSize];
+			totalsize = alignSize(sizeof(BYTE)*Row*lineSize, (int)sizeof(*m_refCount));
+			DataUnion.m_pByte= (BYTE*)fastMalloc(totalsize + (int)sizeof(*m_refCount));
+			m_refCount = (int*)(DataUnion.m_pByte + totalsize);
+			*m_refCount = 1;
 			memset(DataUnion.m_pByte,0,sizeof(BYTE)*Row*lineSize);
 			break;
 		case DATA_DOUBLE:
-			DataUnion.m_pDouble=new double[Row*Col*depth];
+//			DataUnion.m_pDouble=new double[Row*Col*depth];
+			totalsize = alignSize(sizeof(double)*Row*Col*depth, (int)sizeof(*m_refCount));
+			pTmp= (BYTE*)fastMalloc(totalsize + (int)sizeof(*m_refCount));
+			m_refCount = (int*)(pTmp + totalsize);
+			*m_refCount = 1;
+			DataUnion.m_pDouble=(double*)pTmp;
 			memset(DataUnion.m_pDouble,0,sizeof(double)*Row*Col*depth);
 			break;
 		}
@@ -1005,7 +1057,6 @@ int CpkMat::getRow(CpkMat&dest,int nRow)
 
 int CpkMat::GetData(CpkMat& dest,int rowS,int rowE,int colS,int colE)
 {
-	int arraySize=(rowE-rowS+1)*(colE-colS+1)*Depth;
 	int dCol=colE-colS;
 	if(colE>Col||rowE>Row||dCol==0)
 		return PK_NOT_ALLOW_OPERATOR;
@@ -1014,45 +1065,46 @@ int CpkMat::GetData(CpkMat& dest,int rowS,int rowE,int colS,int colE)
 	{
 	case DATA_INT:
 		{
-			int * pdata=new int[arraySize];
+			dest.Resize(rowE-rowS,dCol,Depth,m_dataType);
+			int * pdata=dest.GetData<int>();
 			int * pSrc=DataUnion.m_pInt;
-			for(int i=0;i<=rowE-rowS;i++)
+			for(int i=0;i<rowE-rowS;i++)
 			{
-				for(int j=0;j<=colE-colS;j++)
+				for(int j=0;j<colE-colS;j++)
 				{
 					for(int n=0;n<Depth;n++)
 						pdata[i*dCol+j+n]=pSrc[(i+rowS)*Col+j+colS+n];
 				}
 			}
-			dest.Resize(rowE-rowS+1,dCol,Depth,m_dataType,pdata);
-			delete [] pdata;
 			break;
 		}
 	case DATA_BYTE:
 		{
-			BYTE * pdata=new BYTE[arraySize];
+			int lineOut=(dCol*Depth+3)/4*4;
+			
+			dest.Resize(rowE-rowS,dCol,Depth,m_dataType);
+
+			BYTE * pdata=dest.GetData<BYTE>();
 			BYTE * pSrc=DataUnion.m_pByte;
-			for(int i=0;i<=rowE-rowS;i++)
+			
+			for(int i=0;i<rowE-rowS;i++)
 			{
-				for(int j=0;j<=colE-colS;j++)
+				for(int j=0;j<lineOut;j++)
 				{
 					for(int n=0;n<Depth;n++)
-						pdata[i*dCol+j+n]=pSrc[(i+rowS)*Col+j+colS+n];
+						pdata[i*lineOut+j*Depth+n]=pSrc[(i+rowS)*lineSize+j*Depth+colS+n];
 				}
 			}
-			dest.Resize(rowE-rowS,dCol,Depth,m_dataType,pdata);
-			delete [] pdata;
 			break;
 		}
 	case DATA_DOUBLE:
 		{
-			if(dest.Row==0||dest.Col==0)
-				dest.Resize(rowE-rowS+1,dCol,Depth,m_dataType);
+			dest.Resize(rowE-rowS,dCol,Depth,m_dataType);
 			double * pSrc=DataUnion.m_pDouble;
 			double* pdata=dest.GetData<double>();
-			for(int i=0;i<=rowE-rowS;i++)
+			for(int i=0;i<rowE-rowS;i++)
 			{
-				for(int j=0;j<=colE-colS;j++)
+				for(int j=0;j<colE-colS;j++)
 				{
 					for(int n=0;n<Depth;n++)
 						pdata[i*dCol+j+n]=pSrc[(i+rowS)*Col+j+colS+n];

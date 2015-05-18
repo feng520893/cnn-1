@@ -1,7 +1,9 @@
 #ifndef PKIMAGEFUNCTIONS_H
 #define PKIMAGEFUNCTIONS_H
 #include "pkDefine.h"
+#include"PCA.h"
 #include "CpkMat.h"
+
 
 namespace pk
 {
@@ -14,6 +16,21 @@ namespace pk
 
 	int imwrite(const char*path,CpkMat& src);
 	int imread(const char*path,CpkMat& dest);
+
+	//二值化,threshold=0调用大津自动閥值
+	int Binary(CpkMat&src,int threshold=0);
+
+	//中值滤波
+	int MedF(double **s,int w,int h,int n);
+
+	//高斯肤色建模
+	int GaussSkinModel(CpkMat&destImg,CpkMat&srcImg);
+
+	//膨胀：
+	int dilation(CpkMat&dest,CpkMat&src,CpkMat&mask);
+
+	//腐蚀：
+	int erosion(CpkMat&dest,CpkMat&src,CpkMat&mask);
 
 	//获取RGB三通道
 	int GetRGBchannel(CpkMat&src,CpkMat& colorR,CpkMat&colorG,CpkMat& colorB);

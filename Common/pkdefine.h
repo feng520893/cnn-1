@@ -29,6 +29,8 @@ typedef long LONG;
 #define PK_NOT_REAL_FACE         -9
 #define PK_NOT_DATA              -10
 #define PK_NOT_SUPPORT_FORMAT    -11
+#define PK_NOT_INIT              -12
+#define PK_ERROR_PARAM           -13
 
 
 //ÍøÂç²¿·Ö
@@ -46,6 +48,23 @@ struct MinSGD
 	unsigned short minibatch;
 	float alpha;
 	float momentum;
+};
+namespace pk
+{
+	struct vecDistance
+	{
+		int id;
+		int start;
+		int end;
+	};
+
+	struct Rect
+	{
+		int x;
+		int y;
+		int width;
+		int height;
+	};
 };
 
 #endif

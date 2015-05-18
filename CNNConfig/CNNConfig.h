@@ -13,10 +13,7 @@ public:
 	virtual ~CCNNConfig(void);
 	int loadConfig(const char* path);
 	int saveConfig(const char* path=NULL);
-	
 	int  writeString(const char* key,std::string mess);
-	int runMode;
-	int  inputChannel;
 private:
 	int loadGlobalMess(std::ifstream& in);
 	int loadMinSGDMess(std::ifstream& in);
@@ -39,8 +36,8 @@ public:
 	MinSGD sgd;
 	std::vector<CConvLayer> convs;
 	std::vector<CFullLayer> fulls;
-	CSoftMaxLayer      sfm;
-	std::string        weightPath;
-	
-	
+	CSoftMaxLayer           sfm;
+	bool                    gradCheck;
+	int                     inputChannel;
+	int                     inputDim;
 };

@@ -2,6 +2,9 @@
 
 CCNNConfig::CCNNConfig(void)
 {
+	gradCheck=false;
+	inputChannel=1;
+	inputDim=28;
 }
 
 CCNNConfig::~CCNNConfig(void)
@@ -62,12 +65,12 @@ int CCNNConfig::loadGlobalMess(std::ifstream& in)
 		int index=mess.find("=");
 		if(index!=std::string::npos)
 		{
-			if(mess.find("RUN_MODE")!=std::string::npos)
-				runMode=readInt(mess);
+			if(mess.find("GRAD_CHECK")!=std::string::npos)
+				gradCheck=readBool(mess);
 			else if(mess.find("IMAGE_CHNANEL")!=std::string::npos)
 				inputChannel=readInt(mess);
-			else if(mess.find("WEIGHT_PATH")!=std::string::npos)
-				weightPath=readString(mess);
+			else if(mess.find("IMAGE_DIM")!=std::string::npos)
+				inputDim=readInt(mess);
 			else
 			{
 				printf("无法解析的数据:%s",mess.c_str());

@@ -220,6 +220,7 @@ namespace pk
 			int nLineByteIn=src.lineSize;
 			int nLineByteOut=(src.Col+3)/4*4;
 			tmp.Resize(src.Row,src.Col,1,CpkMat::DATA_BYTE);
+			tmp.Col=src.Col;
 			BYTE* pDest=tmp.GetData<BYTE>();
 			for(int i=0;i<src.Row;i++)
 			{
@@ -295,7 +296,7 @@ namespace pk
 		BYTE* pSrc=src.GetData<BYTE>();
 		int lineByteIn=(src.Col*src.Depth+3)/4*4;
 		int lineByteOut=(widthOut*src.Depth+3)/4*4;
-		tmp.Resize(heighOut,widthOut,src.Depth,src.GetType());
+		tmp.Resize(heighOut,lineByteOut/src.Depth,src.Depth,src.GetType());
 		BYTE* pDest=tmp.GetData<BYTE>();
 		if(type==NEAREST)
 		{
@@ -369,6 +370,247 @@ namespace pk
 			CpkMat tmp2;
 			src.getColData(tmp2,src.Col-i-1);
 			tmp.setColData(i,tmp2);
+		}
+		dest=tmp;
+		return PK_SUCCESS;
+	}
+
+	int Binary(CpkMat&src,int threshold)
+	{
+		if(src.Depth!=1)
+			return PK_NOT_ALLOW_OPERATOR;
+
+		int maxT=0;
+		BYTE* pSrc=src.GetData<BYTE>();
+
+		if(threshold==0)
+		{
+			int nHistArray[256]={0};
+			float nHistArrayPro[256]={0};
+			for(int i=0;i<src.Row*src.lineSize;i++)
+				nHistArray[*(pSrc+i)]++;
+
+			for(int i = 0; i < 256; i++)
+				nHistArrayPro[i] = (float)nHistArray[i] / (src.lineSize*src.Row);
+
+			float w0, w1, u0tmp, u1tmp, u0, u1, u, deltaTmp, deltaMax = 0;
+			for(int i = 0; i < 256; i++)
+			{
+				w0 = w1 = u0tmp = u1tmp = u0 = u1 = u = deltaTmp = 0;
+				for(int j = 0; j < 256; j++)
+				{
+					if(j <= i)
+					{
+						w0 += nHistArrayPro[j];
+						u0tmp += j * nHistArrayPro[j];
+					}
+					else
+					{
+						w1 += nHistArrayPro[j];
+						u1tmp += j * nHistArrayPro[j];
+					}
+				}
+				if(w0==0)
+					w0=1e-5;
+				if(w1==0)
+					w1=1e-5;
+				u0 = u0tmp / w0;
+				u1 = u1tmp / w1;
+				u = u0tmp + u1tmp;
+				deltaTmp = 
+					w0 * ::pow((u0 - u), 2) + w1 * ::pow((u1 - u), 2);
+				if(deltaTmp > deltaMax)
+				{
+					deltaMax = deltaTmp;
+					maxT = i;
+				}
+			}
+		}
+		else
+			maxT=threshold;
+
+		for(int i=0;i<src.Row*src.lineSize;i++)
+		{
+			if(*(pSrc+i)<maxT)
+				*(pSrc+i)=0;
+			else
+				*(pSrc+i)=255;
+		}
+		return PK_SUCCESS;
+	}
+
+
+	int GaussSkinModel(CpkMat&destImg,CpkMat&srcImg)
+	{
+		static double cbMean=117.4361;
+		static double crMean=156.5599;
+		static double Cov00=160.1301;
+		static double Cov01=12.1430;
+		static double Cov10=12.1430;
+		static double Cov11=299.4574;
+		if(srcImg.GetType()!=CpkMat::DATA_BYTE)
+			return PK_NOT_ALLOW_OPERATOR;
+		BYTE* dataIn=srcImg.GetData<BYTE>();
+		int pix=srcImg.Depth;
+		//	if(!srcImg->lightCompensation())
+		//		return false;
+		int imgW=srcImg.Col;
+		int imgH=srcImg.Row;
+		int lineByte=(imgW*pix+3)/4*4;
+		int lineByteOut=(imgW+3)/4*4;
+		CpkMat outImg(imgH,imgW,1,srcImg.GetType());
+		BYTE* dataOut=outImg.GetData<BYTE>();
+		double **pSkipArr=new double*[imgH];
+		for(int i=0;i<imgH;i++)
+			pSkipArr[i]=new double[imgW];
+		char cRGB[4]={};
+		for(int i=0;i<imgH;i++)
+		{
+			for(int j=0;j<imgW;j++)
+			{
+				for(int k=0;k<pix;k++)
+					cRGB[k]=*(dataIn+i*lineByte+j*pix+k);
+				int b=(int)cRGB[0]&255;
+				int g=(int)cRGB[1]&255;
+				int r=(int)cRGB[2]&255;
+				//double cr,cb;
+				double cb=128-37.797*r/255-74.203*g/255+112*b/255;
+				double cr=128+112*r/255-93.786*g/255-18.214*b/255;
+				/*if(y>=200)
+				{
+				cr=(pow(r-y,2.0)*0.713)*((-5000/91)/pow(y-20,2.0)+7);
+				cb=(-pow((b-y),2.0)*0.564)*(125/pow(y-200,2.0)-3);
+				}
+				else
+				{
+				cr=(r-y)*0.713;
+				cb=(b-y)*0.564;
+				}*/
+				//计算该点属于皮肤区域的概率
+				double tt=(cb-cbMean)*((cb-cbMean)*Cov11-(cr-crMean)*Cov10)+(cr-crMean)*(-(cb-cbMean)*Cov01+(cr-crMean)*Cov00);
+				tt=(-0.5*tt)/(Cov00*Cov11-Cov01*Cov10);
+				pSkipArr[i][j]=::exp(tt);
+			}
+		}
+		//中值滤波使图像平滑过渡
+		MedF(pSkipArr,imgW,imgH,9);
+		//统计最大肤色相似度
+		double max=0.0;
+		for(int i=0;i<imgH;i++)
+		{
+			for(int j=0;j<imgW;j++)
+			{
+				if(pSkipArr[i][j]>max)
+					max=pSkipArr[i][j];
+			}
+		}
+		//肤色相似度归一化
+		for(int i=0;i<imgH;i++)
+			for(int j=0;j<imgW;j++)
+				pSkipArr[i][j]=pSkipArr[i][j]/max;
+		//将肤色变换到0~255
+		for(int i=0;i<imgH;i++)
+			for(int j=0;j<imgW;j++)
+				*(dataOut+i*lineByteOut+j)=(int)(pSkipArr[i][j]*255);
+
+		for(int i=0;i<imgH;i++)
+			delete []pSkipArr[i];
+		delete []pSkipArr;
+		srcImg=outImg;
+		return PK_SUCCESS;
+	}
+
+	int MedF(double **s,int w,int h,int n)
+	{
+		if(NULL==s||*s==NULL)
+			return PK_ERROR_PARAM;
+		double**temp=new double*[h+2*(n/2)];
+		for(int i=0;i<h+2*(n/2);i++)
+			temp[i]=new double[w+2*(n/2)];
+		for(int i=0;i<h+2*(n/2);i++)
+			for(int j=0;j<w+2*(n/2);j++)
+				temp[i][j]=0.0;
+		for(int i=0;i<h;i++)
+			for(int j=0;j<w;j++)
+				temp[i+n/2][j+n/2]=s[i][j];
+		for(int i=0;i<h;i++)
+			for(int j=0;j<w;j++)
+			{
+				s[i][j]=0.0;
+				for(int r=0;r<n;r++)
+					for(int c=0;c<n;c++)
+						s[i][j]+=temp[i+r][j+c];
+				s[i][j]/=n*n;
+			}
+			if(temp!=NULL)
+			{
+				for(int i=0;i<h+2*(n/2);i++)
+					if(temp[i]!=NULL)
+						delete [] temp[i];
+				delete [] temp;
+			}
+			return PK_SUCCESS;
+	}
+
+	int dilation(CpkMat&dest,CpkMat&src,CpkMat&mask)
+	{
+		CpkMat tmp(src.Row,src.Col,1,src.GetType());
+		int *pMask= mask.GetData<int>();
+		BYTE* pSrc=src.GetData<BYTE>();
+		BYTE* pDest=tmp.GetData<BYTE>();
+		for (int i=1; i<src.Row-1; i++)
+		{
+			for (int j=0; j<src.lineSize; j++)
+			{
+				bool bPass=true;
+				pDest[i*dest.lineSize + j]=0;
+				for (int m=0; m<mask.Row; m++)
+				{
+					for (int n=0; n<mask.Col; n++)
+					{
+						if(pMask[m*mask.lineSize+ n] == 0)
+							continue;
+						if (255 == pSrc[(i+2-m-1)*src.lineSize + n-1+j])
+						{
+							bPass=false;
+							pDest[i*dest.lineSize + j]=255;
+							break;
+						} 
+					}
+				}
+			}
+		}
+		dest=tmp;
+		return PK_SUCCESS;
+	}
+
+	int erosion(CpkMat&dest,CpkMat&src,CpkMat&mask)
+	{
+		CpkMat tmp(src.Row,src.Col,1,src.GetType());
+		int *pMask= mask.GetData<int>();
+		BYTE* pSrc=src.GetData<BYTE>();
+		BYTE* pDest=tmp.GetData<BYTE>();
+		for (int i=1; i<src.Row-1; i++)
+		{
+			for (int j=0; j<src.lineSize; j++)
+			{
+				bool bPass=true;
+				pDest[i*dest.lineSize + j]=255;
+				for (int m=0; m<mask.Row; m++)
+				{
+					for (int n=0; n<mask.Col; n++)
+					{
+						if(pMask[m*mask.lineSize+ n] == 0)
+							continue;
+						if (0 == pSrc[(i+2-m-1)*src.lineSize + n-1+j])
+						{
+							bPass=false;
+							pDest[i*dest.lineSize + j]=0;
+							break;
+						} 
+					}
+				}
+			}
 		}
 		dest=tmp;
 		return PK_SUCCESS;

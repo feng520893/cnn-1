@@ -9,7 +9,7 @@
 
 #include<Windows.h>
 
-typedef	std::vector<std::vector<CpkMat> > Data;
+typedef	CpkMat Data;
 
 class CCNN
 {
@@ -17,12 +17,12 @@ public:
 	CCNN(void);
 	virtual ~CCNN(void);
 	void setParam(MinSGD& sgd,float dropRate,int activeType);
+	const MinSGD& getMinSGDInfo();
 	int init(std::vector<CConvLayer>& convLayers,std::vector<CFullLayer>&fullLayers,CSoftMaxLayer& sfm,int dataDim,short dataChannel,int batch);
+	int init(const char*path);
 	int cnnTrain(Data&datas,std::vector<int>& labels);
 	int cnnRun(std::vector<double>&pred,Data&datas);
 	double computeNumericalGradient(Data&datas,std::vector<int>& labels);
-
-	int loadConfig(const char*path,Data&datas,std::vector<int>&labels,Data&testDatas,std::vector<int>&testLabels);
 
 	int save(const char* path);
 	int load(const char* path);

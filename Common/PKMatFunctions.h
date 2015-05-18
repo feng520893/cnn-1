@@ -7,6 +7,9 @@
 
 namespace pk
 {
+
+	enum DATA_TYPE{DATA_COLS,DATA_ROWS};
+
 	template <class T>
 	class TwoValue
 	{
@@ -19,13 +22,21 @@ namespace pk
 	CpkMat matDotMat(CpkMat& x1,CpkMat& x2);
 	int svd(CpkMat& src,CpkMat& U,CpkMat&V,CpkMat&S,double eps=0.000001);
 
-	//根据行或列求平均值,返回相应的行或列矩阵
-	int avg(CpkMat&dest,CpkMat&src,bool bColumn=true);
+	//求平均值
+	//DATA_ROWS计算每行的平均值返回列向量
+	//DATA_COLS计算每列的平均值返回行向量
+	int avg(CpkMat&dest,CpkMat&src,DATA_TYPE dataType=DATA_COLS);
+
+	//根据传入的向量生成对角矩阵
+	CpkMat diag(CpkMat&src);
 
 	//某个数减矩阵各个值
 	CpkMat sub(double num,CpkMat&src);
 
-	int pca(CpkMat&dest,CpkMat&src,bool bColumn=true);
+	//矩阵减向量
+	//DATA_ROWS为减行向量
+	//DATA_COLS为减列向量
+	CpkMat subVec(CpkMat&src,CpkMat&vec,DATA_TYPE dataType=DATA_COLS);
 
 	//矩阵旋转180度
 	int rot180(CpkMat&dest,CpkMat&src);
@@ -46,9 +57,6 @@ namespace pk
 
 	//改变矩阵的宽高，数据不变
 	CpkMat reshape(CpkMat&src,int row,int col);
-
-	//现在只对列平铺
-	CpkMat repmat(CpkMat&src,int col);
 
 	//返回TwoValue,x1为值，x2为下标
 	TwoValue<double> Max(CpkMat&src);

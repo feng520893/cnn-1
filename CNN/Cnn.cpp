@@ -1,6 +1,5 @@
 #include "Cnn.h"
 #include <assert.h>
-#include<tchar.h>
 
 #include"..\\common\\pkmatFunctions.h"
 
@@ -24,6 +23,11 @@ void CCNN::setParam(MinSGD& sgd,float dropRate,int activeType)
 	m_sgd=sgd;
 	m_dropRate=dropRate;
 	m_activeType=activeType;
+}
+
+const MinSGD& CCNN::getMinSGDInfo()
+{
+	return m_sgd;
 }
 
 int CCNN::init(std::vector<CConvLayer>& convLayers,std::vector<CFullLayer>&fullLayers,CSoftMaxLayer& sfm,int dataDim,short dataChannel,int batch)
@@ -79,7 +83,23 @@ int CCNN::init(std::vector<CConvLayer>& convLayers,std::vector<CFullLayer>&fullL
 
 int CCNN::cnnTrain(Data&datas,std::vector<int>& labels)
 {
-	DWORD ss=timeGetTime();
+	if(datas.Row==0)
+	{
+		printf("训练集为空");
+		return PK_FAIL;
+	}
+
+	if(datas.Row%m_sgd.minibatch!=0)
+	{
+		printf("小样本的数量(%d)不能被总数(%d)的倍数",m_sgd.minibatch,datas.Row);
+		return PK_FAIL;
+	}
+	if(datas.Row<m_sgd.minibatch)
+	{
+		printf("小样本的数量(%d)大于总数(%d)",m_sgd.minibatch,datas.Row);
+		return PK_FAIL;
+	}
+
 	int it = 0;
 	int momIncrease=20;
 	double mom=0.5;
@@ -87,13 +107,13 @@ int CCNN::cnnTrain(Data&datas,std::vector<int>& labels)
 	int dataSize=labels.size();
 
 	std::vector<int> nLocalLabel;
-
-	int imageSize=datas[0][0].Row*datas[0][0].lineSize;
-	double* nLocalData=(double*)malloc(sizeof(double)*imageSize*m_convLayers[0].m_inputNumFeature*m_sgd.minibatch);
+	int nChannel=m_convLayers[0].m_inputNumFeature;
+	int imageSize=datas.Col;
+	double* nLocalData=(double*)malloc(sizeof(double)*imageSize*nChannel*m_sgd.minibatch);
 
 	double* gpuData=NULL;
 	cudaError_t cudaStat;
-	cudaStat=cudaMalloc((void**)&gpuData,sizeof(double)*imageSize*m_convLayers[0].m_inputNumFeature*m_sgd.minibatch);
+	cudaStat=cudaMalloc((void**)&gpuData,sizeof(double)*imageSize*nChannel*m_sgd.minibatch);
 	if(cudaStat!=cudaSuccess)
 	{
 		printf("device memory cudaMalloc failed\n");
@@ -112,16 +132,16 @@ int CCNN::cnnTrain(Data&datas,std::vector<int>& labels)
 			if(++it == momIncrease)
 				mom = m_sgd.momentum;
 			CpkMat tmp;
-			rp.GetData(tmp,0,0,s,s+m_sgd.minibatch);
+			rp.GetData(tmp,0,1,s,s+m_sgd.minibatch);
 			int* pdata=tmp.GetData<int>();
+			double* pSrcData=datas.GetData<double>();
 			for(int i=0;i<m_sgd.minibatch;i++,pdata++)
 			{
-				for(int j=0;j<m_convLayers[0].m_inputNumFeature;j++)
-					memcpy(nLocalData+i*imageSize*m_convLayers[0].m_inputNumFeature+j*imageSize,datas[*pdata][j].GetData<double>(),sizeof(double)*imageSize);
+				memcpy(nLocalData+i*imageSize*nChannel,pSrcData+(*pdata)*imageSize*nChannel,sizeof(double)*imageSize*nChannel);
 				nLocalLabel[i]=labels[*pdata];
 			}
 
-			cudaStat=cudaMemcpy(gpuData,nLocalData,sizeof(double)*imageSize*m_convLayers[0].m_inputNumFeature*m_sgd.minibatch,cudaMemcpyHostToDevice);
+			cudaStat=cudaMemcpy(gpuData,nLocalData,sizeof(double)*imageSize*nChannel*m_sgd.minibatch,cudaMemcpyHostToDevice);
 			if(cudaStat!=cudaSuccess)
 			{
 				printf("device memory cudaMemcpy failed\n");
@@ -143,24 +163,30 @@ int CCNN::cnnTrain(Data&datas,std::vector<int>& labels)
 
 int CCNN::cnnRun(std::vector<double>&pred,Data&datas)
 {
-	int dataSize=datas.size();
-	int imageSize=datas[0][0].Row*datas[0][0].lineSize;
+	if(datas.Row==0||datas.Col==0)
+	{	
+		printf("测试集为空");
+		return PK_FAIL;
+	}
+
+	int dataSize=datas.Row;
+	int imageSize=datas.Col;
+	int nChannel=m_convLayers[0].m_inputNumFeature;
 
 	double* gpuData=NULL;
 	cudaError_t cudaStat;
-	cudaStat=cudaMalloc((void**)&gpuData,sizeof(double)*imageSize*m_convLayers[0].m_inputNumFeature*datas.size());
+	cudaStat=cudaMalloc((void**)&gpuData,sizeof(double)*imageSize*nChannel*dataSize);
 	if(cudaStat!=cudaSuccess)
 	{
 		printf("device memory cudaMalloc failed\n");
 		return -1;
 	}
 
-	double* nLocalData=(double*)malloc(sizeof(double)*imageSize*m_convLayers[0].m_inputNumFeature*datas.size());
-	for(int i=0;i<datas.size();i++)
-		for(int j=0;j<m_convLayers[0].m_inputNumFeature;j++)
-			memcpy(nLocalData+i*imageSize*m_convLayers[0].m_inputNumFeature+j*imageSize,datas[i][j].GetData<double>(),sizeof(double)*imageSize);
+	double* nLocalData=(double*)malloc(sizeof(double)*imageSize*nChannel*dataSize);
+	for(int i=0;i<dataSize;i++)
+		memcpy(nLocalData+i*imageSize*nChannel,datas.GetData<double>()+i*imageSize*nChannel,sizeof(double)*imageSize*nChannel);
 
-	cudaStat=cudaMemcpy(gpuData,nLocalData,sizeof(double)*imageSize*m_convLayers[0].m_inputNumFeature*datas.size(), cudaMemcpyHostToDevice);
+	cudaStat=cudaMemcpy(gpuData,nLocalData,sizeof(double)*imageSize*nChannel*dataSize, cudaMemcpyHostToDevice);
 	free(nLocalData);
 	if(cudaStat!=cudaSuccess)
 	{
@@ -175,27 +201,40 @@ int CCNN::cnnRun(std::vector<double>&pred,Data&datas)
 }
 
 
-double CCNN::computeNumericalGradient(Data&datas,std::vector<int>& labels)
+double CCNN::computeNumericalGradient(Data&srcDatas,std::vector<int>& srcLabels)
 {
+	Data datas;
+	std::vector<int> labels;
+	if(labels.size()>2)
+	{
+		for(int i=0;i<2;i++)
+			labels.push_back(srcLabels[i]);
+		srcDatas.copyTo(datas,2,srcDatas.Col,srcDatas.GetType());
+	}
+	else
+	{
+		datas=srcDatas;
+		labels=srcLabels;
+	}
 
-	int dataSize=datas.size();
-	int imageSize=datas[0][0].Row*datas[0][0].lineSize;
+	int dataSize=datas.Row;
+	int imageSize=datas.Col;
+	int nChannel=m_convLayers[0].m_inputNumFeature;
 
 	double* gpuData=NULL;
 	cudaError_t cudaStat;
-	cudaStat=cudaMalloc((void**)&gpuData,sizeof(double)*imageSize*m_convLayers[0].m_inputNumFeature*datas.size());
+	cudaStat=cudaMalloc((void**)&gpuData,sizeof(double)*imageSize*m_convLayers[0].m_inputNumFeature*dataSize);
 	if(cudaStat!=cudaSuccess)
 	{
 		printf("device memory cudaMalloc failed\n");
 		return -1;
 	}
 
-	double* nLocalData=(double*)malloc(sizeof(double)*imageSize*m_convLayers[0].m_inputNumFeature*datas.size());
-	for(int i=0;i<datas.size();i++)
-		for(int j=0;j<m_convLayers[0].m_inputNumFeature;j++)
-			memcpy(nLocalData+i*imageSize*m_convLayers[0].m_inputNumFeature+j*imageSize,datas[i][j].GetData<double>(),sizeof(double)*imageSize);
+	double* nLocalData=(double*)malloc(sizeof(double)*imageSize*m_convLayers[0].m_inputNumFeature*dataSize);
+	for(int i=0;i<dataSize;i++)
+		memcpy(nLocalData+i*imageSize*nChannel,datas.GetData<double>()+i*imageSize*nChannel,sizeof(double)*imageSize*nChannel);
 
-	cudaStat=cudaMemcpy(gpuData,nLocalData,sizeof(double)*imageSize*m_convLayers[0].m_inputNumFeature*datas.size(), cudaMemcpyHostToDevice);
+	cudaStat=cudaMemcpy(gpuData,nLocalData,sizeof(double)*imageSize*m_convLayers[0].m_inputNumFeature*dataSize, cudaMemcpyHostToDevice);
 	free(nLocalData);
 	if(cudaStat!=cudaSuccess)
 	{
@@ -238,18 +277,6 @@ double CCNN::computeNumericalGradient(Data&datas,std::vector<int>& labels)
 
 	double epsilon = 1e-4;
 
-/*	for(int i =0;i<m_theta.Row;i++)
-	{
-		double oldT = m_theta.GetData<double>()[i];
-		m_theta.GetData<double>()[i] =oldT+epsilon;
-		double pos = cnnCost(p,data,datas[0][0].Row*datas[0][0].lineSize,datas.size(),datas[0][0].Row,labels);
-		m_theta.GetData<double>()[i]=oldT-epsilon;
-		double neg = cnnCost(p,data,datas[0][0].Row*datas[0][0].lineSize,datas.size(),datas[0][0].Row,labels);
-		numgrad.GetData<double>()[i] = (pos-neg)/(2*epsilon);
-		m_theta.GetData<double>()[i]=oldT;
-		if((i+1)%100==0)
-			printf("Done with %d\n",i+1);
-	}*/
 	int index2=0;
 	for(int i=0;i<m_convLayers.size();i++)
 	{
@@ -521,116 +548,21 @@ int CCNN::load(const char* path)
 	return PK_SUCCESS;
 }
 
-int CCNN::loadConfig(const char*path,Data&trainDatas,std::vector<int>&trainLabels,Data&testDatas,std::vector<int>&testLabels)
+int CCNN::init(const char*path)
 {
+	int nRet=0;
 	CCNNConfig c;
-	c.loadConfig(path);
+	nRet=c.loadConfig(path);
 
-	if(trainDatas.size()%c.sgd.minibatch!=0)
-	{
-		printf("小样本的数量(%d)不能被总数(%d)的倍数",c.sgd.minibatch,trainDatas.size());
-		return PK_FAIL;
-	}
-
-	if(trainDatas.size()<c.sgd.minibatch)
-	{
-		printf("小样本的数量(%d)大于总数(%d)",c.sgd.minibatch,trainDatas.size());
-		return PK_FAIL;
-	}
-
-	if((c.runMode==0||c.runMode==1||c.runMode==3)&&trainDatas.empty())
-	{
-		printf("训练集为空");
-		return PK_FAIL;
-	}
-
-	if(c.runMode<2&&trainDatas.empty())
-	{
-		printf("测试集为空");
-		return PK_FAIL;
-	}
-
-	if(c.runMode==0)
+	if(c.gradCheck)
 	{
 		setParam(c.sgd,0.0,NL_SOFT_PLUS);
-		int batch=trainLabels.size();
-		if(batch>2)
-			batch=2;
-		init(c.convs,c.fulls,c.sfm,trainDatas[0][0].Row,c.inputChannel,batch);
+		nRet=init(c.convs,c.fulls,c.sfm,c.inputDim,c.inputChannel,2);
 	}
 	else
 	{
 		setParam(c.sgd,0.5,NL_RELU);
-		init(c.convs,c.fulls,c.sfm,trainDatas[0][0].Row,c.inputChannel,c.sgd.minibatch);
+		nRet=init(c.convs,c.fulls,c.sfm,c.inputDim,c.inputChannel,c.sgd.minibatch);
 	}
-
-	if(c.runMode==0)
-	{
-		double r=0.0;
-		if(trainLabels.size()>2)
-		{
-			Data tmpDatas;
-			std::vector<int> tmpLabels;
-			for(int i=0;i<2;i++)
-			{
-				tmpDatas.push_back(trainDatas[i]);
-				tmpLabels.push_back(trainLabels[i]);
-			}
-			r=computeNumericalGradient(tmpDatas,tmpLabels);
-		}
-		else
-			r=computeNumericalGradient(trainDatas,trainLabels);
-
-		printf("梯度误差:%e",r);
-		if(r>1e-9)
-			printf("(算法有问题)\n");
-		else
-			printf("(检测通过)\n");
-	}
-	else if(c.runMode==1)
-	{
-		cnnTrain(trainDatas,trainLabels);
-		TCHAR exe_path[256]={0};
-		TCHAR dataPath[256]={0};
-		GetModuleFileName(NULL,exe_path, MAX_PATH); 
-		(_tcsrchr(exe_path, _T('\\')))[1] = 0;
-
-		sprintf(dataPath,_T("%sdata\\theta.dat"),exe_path);
-		save(dataPath);
-		c.writeString("WEIGHT_PATH",dataPath);
-		c.saveConfig();
-	}
-	else if(c.runMode==2)
-	{
-		if(c.weightPath.empty())
-		{
-			printf("没输入权值数据所在文件");
-			return PK_FAIL;
-		}
-		
-		load(c.weightPath.c_str());
-		std::vector<double> pred;
-		int maxNum=0;
-		int right=0;
-		Data tmpImg;
-		for(int i=maxNum;i<testDatas.size();i++)
-		{
-			tmpImg.push_back(testDatas[maxNum++]);
-			if(maxNum%c.sgd.minibatch==0)
-			{
-				cnnRun(pred,tmpImg);
-				tmpImg.clear();
-				printf("测试进度:%.2lf\b\b\b\b\b\b\b\b\b\b\b\b\b\b",100.0*maxNum/testDatas.size());
-			}
-		}
-		for(int i=0;i<testLabels.size();i++)
-		{
-			if(pred[i]==testLabels[i])
-				right++;
-		}
-		printf("\n%.2lf\n",right/(double)testLabels.size()*100);
-	}
-	
-
-	return PK_SUCCESS;
+	return nRet;
 }

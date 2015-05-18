@@ -171,6 +171,31 @@ namespace pk
 		fg[1]=r;   
 	} 
 
+	CpkMat diag(CpkMat&src)
+	{
+		CpkMat tmp;
+		if(src.Col!=1&&src.Col!=1)
+			return tmp;
+		int length=PK_MAX(src.Col,src.Row);
+		tmp.Resize(length,length,1,src.GetType());
+		switch(src.GetType())
+		{
+		case CpkMat::DATA_DOUBLE:
+			for(int i=0;i<length;i++)
+				tmp.GetData<double>()[i*tmp.lineSize+i]=src.GetData<double>()[i];
+			break;
+		case CpkMat::DATA_BYTE:
+			for(int i=0;i<length;i++)
+				tmp.GetData<BYTE>()[i*tmp.lineSize+i]=src.GetData<BYTE>()[i];
+			break;
+		case CpkMat::DATA_INT:
+			for(int i=0;i<length;i++)
+				tmp.GetData<int>()[i*tmp.lineSize+i]=src.GetData<int>()[i];
+			break;
+		}
+		return tmp;
+	}
+
 	int svd(CpkMat& src,CpkMat& mtxU,CpkMat& mtxV,CpkMat& mtxS,double eps/*= 0.000001*/)
 	{    
 		int i,j,k,l,it,ll,kk,ix,iy,mm,nn,iz,m1,ks;   
@@ -184,9 +209,12 @@ namespace pk
 		mtxS=src;
 		// 临时缓冲区   
 		int ka = MAX(m, n) + 1;   
-		s = new double[ka];   
+		s = new double[ka]; 
+		memset(s,0,sizeof(double)*ka);
 		e = new double[ka];   
-		w = new double[ka];   
+		memset(e,0,sizeof(double)*ka);
+		w = new double[ka];
+		memset(w,0,sizeof(double)*ka);
 		// 指定迭代次数为60   
 		double* m_pData=mtxS.GetData<double>();
 		double* uPData=mtxU.GetData<double>();
@@ -253,8 +281,10 @@ namespace pk
 							{    
 								ix=(i-1)*n+j-1;   
 								iy=(i-1)*n+kk-1;   
+								if(kk>650)
+									kk=kk;
 								m_pData[ix]=m_pData[ix]+d*m_pData[iy];   
-							}   
+							}  
 						}   
 						e[j-1]=m_pData[(kk-1)*n+j-1];   
 					}   
@@ -655,52 +685,16 @@ namespace pk
 	}
 
 
-	int avg(CpkMat&dest,CpkMat&src,bool bColumn)
+	int avg(CpkMat&dest,CpkMat&src,DATA_TYPE dataType)
 	{
-		if(bColumn)
+		if(dataType==DATA_COLS)
 		{
+			dest.Resize(1,src.Col,1,src.GetType());
 			switch(src.GetType())
 			{
 			case CpkMat::DATA_DOUBLE:
 				{
-					double* buffer=new double[src.Row];
-					memset(buffer,0,sizeof(double)*src.Row);
-					double* pData=src.GetData<double>();
-					for(int i=0;i<src.Row;i++)
-					{	
-						for(int j=0;j<src.Col;j++)
-							buffer[i]+=pData[i*src.Col+j];
-						buffer[i]/=src.Col;
-					}
-					dest.Resize(src.Row,1,1,src.GetType(),buffer);
-					delete [] buffer;
-				}
-				break;
-			case CpkMat::DATA_BYTE:
-				{
-					BYTE* buffer=new BYTE[src.Col];
-					memset(buffer,0,sizeof(BYTE)*src.Col);
-					BYTE* pData=src.GetData<BYTE>();
-					for(int i=0;i<src.Row;i++)
-					{	
-						for(int j=0;j<src.Col;j++)
-							buffer[i]+=pData[i*src.Col+j];
-						buffer[i]/=src.Col;
-					}
-					dest.Resize(src.Row,1,1,src.GetType(),buffer);
-					delete [] buffer;
-				}
-				break;
-			}
-		}
-		else
-		{
-			switch(src.GetType())
-			{
-			case CpkMat::DATA_DOUBLE:
-				{
-					double* buffer=new double[src.Col];
-					memset(buffer,0,sizeof(double)*src.Col);
+					double* buffer=dest.GetData<double>();
 					double* pData=src.GetData<double>();
 					for(int i=0;i<src.Col;i++)
 					{	
@@ -708,14 +702,12 @@ namespace pk
 							buffer[i]+=pData[j*src.Col+i];
 						buffer[i]/=src.Row;
 					}
-					dest.Resize(1,src.Col,1,src.GetType(),buffer);
-					delete [] buffer;
 				}
 				break;
 			case CpkMat::DATA_BYTE:
 				{
-					BYTE* buffer=new BYTE[src.Col];
-					memset(buffer,0,sizeof(BYTE)*src.Col);
+					dest.Resize(1,src.Col,1,src.GetType());
+					BYTE* buffer=dest.GetData<BYTE>();
 					BYTE* pData=src.GetData<BYTE>();
 					for(int i=0;i<src.Col;i++)
 					{	
@@ -723,71 +715,65 @@ namespace pk
 							buffer[i]+=pData[j*src.Col+i];
 						buffer[i]/=src.Row;
 					}
-					dest.Resize(1,src.Col,1,src.GetType(),buffer);
-					delete [] buffer;
+				}
+				break;
+			case CpkMat::DATA_INT:
+				{
+					dest.Resize(1,src.Col,1,src.GetType());
+					int* buffer=dest.GetData<int>();
+					int* pData=src.GetData<int>();
+					for(int i=0;i<src.Col;i++)
+					{	
+						for(int j=0;j<src.Row;j++)
+							buffer[i]+=pData[j*src.Col+i];
+						buffer[i]/=src.Row;
+					}
+				}
+			}
+		}
+		else
+		{
+			dest.Resize(src.Row,1,1,src.GetType());
+			switch(src.GetType())
+			{
+			case CpkMat::DATA_DOUBLE:
+				{
+					double* buffer=dest.GetData<double>();
+					double* pData=src.GetData<double>();
+					for(int i=0;i<src.Row;i++)
+					{	
+						for(int j=0;j<src.Col;j++)
+							buffer[i]+=pData[i*src.Col+j];
+						buffer[i]/=src.Col;
+					}
+				}
+				break;
+				case CpkMat::DATA_INT:
+				{
+					int* buffer=dest.GetData<int>();
+					int* pData=src.GetData<int>();
+					for(int i=0;i<src.Row;i++)
+					{	
+						for(int j=0;j<src.Col;j++)
+							buffer[i]+=pData[i*src.Col+j];
+						buffer[i]/=src.Col;
+					}
+				}
+				break;
+				case CpkMat::DATA_BYTE:
+				{
+					BYTE* buffer=dest.GetData<BYTE>();
+					BYTE* pData=src.GetData<BYTE>();
+					for(int i=0;i<src.Row;i++)
+					{	
+						for(int j=0;j<src.Col;j++)
+							buffer[i]+=pData[i*src.Col+j];
+						buffer[i]/=src.Col;
+					}
 				}
 				break;
 			}
 		}
-		return PK_SUCCESS;
-	}
-
-
-	int pca(CpkMat&dest,CpkMat&src,bool bColumn)
-	{
-		src.copyTo(dest,src.GetType());
-		CpkMat avg;
-		pk::avg(avg,src,bColumn);
-		CpkMat temp;
-		if(bColumn)
-		{
-			temp.Resize(1,src.Col,1,avg.GetType());
-		temp.setAllData(1);
-		temp=avg*temp;
-		}
-		else
-		{
-			temp.Resize(src.Row,1,1,avg.GetType());
-			temp.setAllData(1);
-			temp=temp*avg;
-		}
-		
-		//svd
-		dest=src-temp;
-		dest.Transpose(temp);
-		avg=temp*dest;
-		CpkMat u,v,s;
-		pk::svd(avg,u,v,s);
-
-		int min=s.Col<s.Row?s.Col:s.Row;
-		double* pData=s.GetData<double>();
-		double sum=0;
-		double tSum=0;
-		for(int i=0;i<min;i++)
-		{
-			sum+=*(pData+i*s.Col+i);
-		}
-		int index=0;
-		for(int i=0;i<min;i++)
-		{
-			++index;
-			tSum+=pData[i*s.Col+i];
-			if(tSum/sum>0.999)
-				break;
-		}
-
-//		v.copyTo(u,index,v.Col,CpkMat::DATA_DOUBLE);
-//		u.Transpose(v);
- 		temp.Resize(dest.Row,18,1,CpkMat::DATA_DOUBLE);
-		for(int i=0;i<temp.Col;i++)
-		{
-			avg=dest/sqrt(pData[i*s.Col+i]);
-			v.getColData(u,i);
-			avg=avg*u;
-			temp.setColData(i,avg);
-		}
-		temp.Transpose(s);
-		dest=s*dest;
 		return PK_SUCCESS;
 	}
 
@@ -1208,14 +1194,6 @@ namespace pk
 		return tmp;
 	}
 
-	CpkMat repmat(CpkMat&src,int col)
-	{
-		CpkMat tmp(src.Row,col,1,CpkMat::DATA_DOUBLE);
-		for(int i=0;i<col;i++)
-			tmp.setColData(i,src);
-		return tmp;
-	}
-
 	CpkMat kron(CpkMat&src1,CpkMat&src2)
 	{
 		CpkMat tmp(src1.Row*src2.Row,src1.Col*src2.Col,1,CpkMat::DATA_DOUBLE);
@@ -1235,6 +1213,99 @@ namespace pk
 						pTmp[offsetR*tmp.Col+offfsetC]=pSrc1[i*src1.Col+j]*pSrc2[k*src2.Col+g];
 					}
 				}
+			}
+		}
+		return tmp;
+	}
+
+	CpkMat subVec(CpkMat&src,CpkMat&vec,DATA_TYPE dataType)
+	{
+		CpkMat tmp;
+		if((dataType==DATA_ROWS&&vec.Row!=1||vec.Col!=src.Col)&&(dataType==DATA_COLS&&vec.Col!=1||vec.Row!=src.Row))
+			return tmp;
+		tmp.Resize(src.Row,src.Col,1,src.GetType());
+		if(dataType==DATA_COLS)
+		{
+			switch(src.GetType())
+			{
+			case CpkMat::DATA_DOUBLE:
+				{
+					double* pSrc=src.GetData<double>();
+					double* pVec=vec.GetData<double>();
+					double* pDest=tmp.GetData<double>(); 
+					for(int i=0;i<src.Row;i++)
+					{
+						for(int j=0;j<src.Col;j++)
+							pDest[i*tmp.lineSize+j]=pSrc[i*src.lineSize+j]-pVec[i];
+					}
+				}
+				break;
+				case CpkMat::DATA_INT:
+				{
+					int* pSrc=src.GetData<int>();
+					int* pVec=vec.GetData<int>();
+					int* pDest=tmp.GetData<int>(); 
+					for(int i=0;i<src.Row;i++)
+					{
+						for(int j=0;j<src.Col;j++)
+							pDest[i*tmp.lineSize+j]=pSrc[i*src.lineSize+j]-pVec[i];
+					}
+				}
+				break;
+				case CpkMat::DATA_BYTE:
+				{
+					BYTE* pSrc=src.GetData<BYTE>();
+					BYTE* pVec=vec.GetData<BYTE>();
+					BYTE* pDest=tmp.GetData<BYTE>(); 
+					for(int i=0;i<src.Row;i++)
+					{
+						for(int j=0;j<src.Col;j++)
+							pDest[i*tmp.lineSize+j]=pSrc[i*src.lineSize+j]-pVec[i];
+					}
+				}
+				break;
+			}
+		}
+		else
+		{
+			switch(src.GetType())
+			{
+			case CpkMat::DATA_DOUBLE:
+				{
+					double* pSrc=src.GetData<double>();
+					double* pVec=vec.GetData<double>();
+					double* pDest=tmp.GetData<double>(); 
+					for(int i=0;i<src.Col;i++)
+					{
+						for(int j=0;j<src.Row;j++)
+							pDest[j*tmp.lineSize+i]=pSrc[j*src.lineSize+i]-pVec[i];
+					}
+				}
+				break;
+			case CpkMat::DATA_INT:
+				{
+					int* pSrc=src.GetData<int>();
+					int* pVec=vec.GetData<int>();
+					int* pDest=tmp.GetData<int>(); 
+					for(int i=0;i<src.Col;i++)
+					{
+						for(int j=0;j<src.Row;j++)
+							pDest[j*tmp.lineSize+i]=pSrc[j*src.lineSize+i]-pVec[i];
+					}
+				}
+				break;
+			case CpkMat::DATA_BYTE:
+				{
+					BYTE* pSrc=src.GetData<BYTE>();
+					BYTE* pVec=vec.GetData<BYTE>();
+					BYTE* pDest=tmp.GetData<BYTE>(); 
+					for(int i=0;i<src.Col;i++)
+					{
+						for(int j=0;j<src.Row;j++)
+							pDest[j*tmp.lineSize+i]=pSrc[j*src.lineSize+i]-pVec[i];
+					}
+				}
+				break;
 			}
 		}
 		return tmp;

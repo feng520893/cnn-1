@@ -13,7 +13,10 @@ CpkMat::CpkMat()
 CpkMat::CpkMat(const CpkMat& s):Col(s.Col),Row(s.Row),Depth(s.Depth)
 ,lineSize(s.lineSize),m_refCount(s.m_refCount),m_dataType(s.m_dataType)
 {
-	DataUnion.m_pByte=s.DataUnion.m_pByte;//共享内存，初始化化1个就行
+	if(s.DataUnion.m_pByte!=NULL)
+		DataUnion.m_pByte=s.DataUnion.m_pByte;//共享内存，初始化化1个就行
+	else
+		DataUnion.m_pByte=NULL;
 	addRef(1);
 }
 
@@ -739,11 +742,11 @@ int CpkMat::ColumnVector(CpkMat& dest)
 	return PK_SUCCESS;
 }
 
-int CpkMat::RowVector()
+CpkMat& CpkMat::RowVector()
 {
 	Col=Row*Col*Depth;
 	Row=1;
-	return PK_SUCCESS;
+	return *this;
 }
 int CpkMat::RowVector(CpkMat& dest)
 {
@@ -1092,7 +1095,9 @@ int CpkMat::getRow(CpkMat&dest,int nRow)
 int CpkMat::GetData(CpkMat& dest,int rowS,int rowE,int colS,int colE)
 {
 	int dCol=colE-colS;
-	if(colE>Col||rowE>Row||dCol==0)
+	int dRow=rowE-rowS;
+
+	if(colE>Col||rowE>Row||dCol==0||dRow==0||dCol>Col||dRow>Row)
 		return PK_NOT_ALLOW_OPERATOR;
 
 	switch(m_dataType)
@@ -1103,32 +1108,21 @@ int CpkMat::GetData(CpkMat& dest,int rowS,int rowE,int colS,int colE)
 			int * pdata=dest.GetData<int>();
 			int * pSrc=DataUnion.m_pInt;
 			for(int i=0;i<rowE-rowS;i++)
-			{
-				for(int j=0;j<colE-colS;j++)
-				{
-					for(int n=0;n<Depth;n++)
-						pdata[i*dCol+j+n]=pSrc[(i+rowS)*Col+j+colS+n];
-				}
-			}
+				memcpy(pdata+i*dest.Col*Depth,pSrc+(i+rowS)*Col*Depth+colS,sizeof(int)*dCol*Depth);
 			break;
 		}
 	case DATA_BYTE:
 		{
 			int lineOut=(dCol*Depth+3)/4*4;
 			
-			dest.Resize(rowE-rowS,dCol,Depth,m_dataType);
+			dest.Resize(dRow,dCol,Depth,m_dataType);
 
 			BYTE * pdata=dest.GetData<BYTE>();
 			BYTE * pSrc=DataUnion.m_pByte;
 			
-			for(int i=0;i<rowE-rowS;i++)
-			{
+			for(int i=0;i<dRow;i++)
 				for(int j=0;j<lineOut;j++)
-				{
-					for(int n=0;n<Depth;n++)
-						pdata[i*lineOut+j*Depth+n]=pSrc[(i+rowS)*lineSize+j*Depth+colS+n];
-				}
-			}
+					pdata[i*lineOut+j]=pSrc[(i+rowS)*lineSize+j+colS*Depth];
 			break;
 		}
 	case DATA_DOUBLE:
@@ -1138,11 +1132,13 @@ int CpkMat::GetData(CpkMat& dest,int rowS,int rowE,int colS,int colE)
 			double* pdata=dest.GetData<double>();
 			for(int i=0;i<rowE-rowS;i++)
 			{
-				for(int j=0;j<colE-colS;j++)
-				{
-					for(int n=0;n<Depth;n++)
-						pdata[i*dCol+j+n]=pSrc[(i+rowS)*Col+j+colS+n];
-				}
+//				for(int j=0;j<(colE-colS)*Depth;j++)
+//				{
+//					for(int n=0;n<Depth;n++)
+//						pdata[i*dCol+j*Depth+n]=pSrc[(i+rowS)*Col+(j+colS)*Depth+n];
+//					pdata[i*dest.Col*Depth+j]=pSrc[(i+rowS)*Col*Depth+j+colS];
+//				}
+				memcpy(pdata+i*dest.Col*Depth,pSrc+(i+rowS)*Col*Depth+colS,sizeof(double)*dCol*Depth);
 			}
 			break;
 		}

@@ -1,48 +1,55 @@
-#ifndef LAYERS_H
-#define LAYERS_H
+#ifndef LAYERS_GPU_H
+#define LAYERS_GPU_H
 #include<cuda_runtime.h>
 #include<stdio.h>
 #include<vector>
 #include<cmath>
+#include<string>
 
-#include"..\\common\\common.h"
-
-#define NL_NONE      0
-#define NL_SOFT_PLUS 1 
-#define NL_RELU      2 
+#include"..\\LayerBase.h"
 
 #define MAX_THREAD_NUM 32
 
 #define GPU_FREE(x) if(x)cudaFree(x);x=NULL;
 
-struct CLayer
+struct CLayerGPU : public CLayer
 {
-	short   m_inputNumFeature;
-	short   m_curNumFeature;
-	float   m_lambda;
-	double* m_weight;
-	double* m_bias;
-	double* m_weightGrad;
-	double* m_biasGrad;
-	double* m_delta;
-	double* m_vecWeight;
-	double* m_vecBias;
-	int     batch;
-	int     m_weightLen;
 
-	CLayer();
-	~CLayer(){freeMem();};
+	CLayerGPU(){};
+
+	~CLayerGPU(){freeMem();};
+
 	void   setWeightValue(int index,double value);
 	double getWeightValue(int inddex);
 
 	void   setBiasValue(int index,double value);
 	double getBiasValue(int inddex);
 
+	void getWeightsGrad(double* CPUdata)
+	{
+		cudaError_t state=cudaMemcpy(CPUdata,m_weightGrad,sizeof(double)*m_weightLen,cudaMemcpyDeviceToHost);
+		CUDA_ERROR(state);
+	}
+
+	void getBiasGrad(double* CPUdata)
+	{
+		cudaError_t state=cudaMemcpy(CPUdata,m_biasGrad,sizeof(double)*m_curNumFeature,cudaMemcpyDeviceToHost);
+		CUDA_ERROR(state);
+	}
+
+	virtual void    feedforward(double* srcData,DLparam& params){};
+	virtual void    backpropagation(double*preDelta,DLparam& params){};
+	virtual void    getGrad(double* srcData){};
+	virtual double  getCost(DLparam& params){return 0;};
+	virtual double* getOutPut(){return NULL;};
+	virtual double* getDelta(){return m_delta;};
+	virtual void    updateWeight(float mom,float alpha){};
+
 	int    save(FILE* fp);
 	int    load(FILE*fp);
 
-	int    initMem();
-	void   freeMem();
+	virtual int    initMem();
+	virtual void   freeMem();
 };
 
 /*静态混合编译会导致训练有问题

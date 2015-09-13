@@ -29,87 +29,48 @@ __device__ double d_fActiveFun(double src,int type)
 	return src*(1-src);
 }
 
-int CFullLayer::initMem()
+int CFullLayerGPU::initMem()
 {
 	m_weightLen=m_curNumFeature*m_inputNumFeature;
 
+	DL_ASSER(m_weightLen!=0);
+
 	cudaError_t cudaStat;
 
-	cudaStat=cudaMalloc((void**)&m_delta,sizeof(double)*m_inputNumFeature*batch);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n");  
-		freeMem();
-		return -1;
-	}
-
-	cudaStat=cudaMalloc((void**)&m_fullDelta,sizeof(double)*m_curNumFeature*batch);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n");  
-		freeMem();
-		return -1;
-	}
+	cudaStat=cudaMalloc((void**)&m_delta,sizeof(double)*m_curNumFeature*batch);
+	CUDA_ERROR(cudaStat);
 
 	cudaStat=cudaMalloc((void**)&m_afterDropWeight,sizeof(double)*m_inputNumFeature*m_curNumFeature);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n");  
-		freeMem();
-		return -1;
-	}
+	CUDA_ERROR(cudaStat);
 
 	cudaStat=cudaMalloc((void**)&m_fullData,sizeof(double)*m_curNumFeature*batch);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n");  
-		freeMem();
-		return -1;
-	}
+	CUDA_ERROR(cudaStat);
 
 	cudaStat=cudaMalloc((void**)&m_fullNoActiveData,sizeof(double)*m_curNumFeature*batch);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n");  
-		freeMem();
-		return -1;
-	}
+	CUDA_ERROR(cudaStat);
 
-	cudaStat=cudaMalloc((void**)&m_dropRate,sizeof(float)*m_inputNumFeature*m_curNumFeature);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf("device memory cudaMemset failed\n");
-		freeMem();
-		return -1;
-	}
+	cudaStat=cudaMalloc((void**)&m_dropProbability,sizeof(float)*m_inputNumFeature*m_curNumFeature);
+	CUDA_ERROR(cudaStat);
 
 	curandStatus_t status=curandCreateGenerator(&m_hGen, CURAND_RNG_PSEUDO_DEFAULT);
-	if(status!=CURAND_STATUS_SUCCESS)
-	{
-		printf("curandCreateGenerator error");
-		exit(0);
-	}
-	status=curandSetPseudoRandomGeneratorSeed(m_hGen,time(NULL));
-	if(status!=CURAND_STATUS_SUCCESS)
-	{
-		printf("curandSetPseudoRandomGeneratorSeed error");
-		exit(0);
-	}
+	CURAND_ERROR(status);
 
-	return CLayer::initMem();
+	status=curandSetPseudoRandomGeneratorSeed(m_hGen,time(NULL));
+	CURAND_ERROR(status);
+
+	return CLayerGPU::initMem();
 }
 
-void CFullLayer::freeMem()
+void CFullLayerGPU::freeMem()
 {
 	GPU_FREE(m_fullData);
 	GPU_FREE(m_fullNoActiveData);
-	GPU_FREE(m_dropRate);
+	GPU_FREE(m_dropProbability);
 	GPU_FREE(m_afterDropWeight);
-	GPU_FREE(m_fullDelta);
 
 	curandDestroyGenerator(m_hGen);
 
-	CLayer::freeMem();
+	CLayerGPU::freeMem();
 }
 
 //block<<<weightLeng/threadNum>>>
@@ -162,35 +123,37 @@ __global__ void feedForwardActive(double* activeData,double*notActiveData,double
 	}
 }
 
-void CFullLayer::feedforward(double* srcData,int activeType,bool bPred)
+void CFullLayerGPU::feedforward(double* srcData,DLparam& params)
 {
-	if(curandGenerateUniform(m_hGen,m_dropRate,m_curNumFeature*m_inputNumFeature)!=CURAND_STATUS_SUCCESS)
-	{
-		printf("curandGenerateUniform error");
-		exit(0);
-	}
-	
+	int activeType=params.activeType;
+	bool bPred=params.pred;
+
+	CURAND_ERROR(curandGenerateUniform(m_hGen,m_dropProbability,m_curNumFeature*m_inputNumFeature));
+
+	cudaError_t cudaStat=cudaSuccess;
 	int wLen=m_curNumFeature*m_inputNumFeature;
 	dim3 threads = min(1024, wLen); 
 	dim3 blocks  = min(1024, (wLen + threads.x - 1) / threads.x); 
 
+	dropOperator<<<blocks,threads>>>(m_dropProbability,wLen,m_dropRate);
+	cudaStat=cudaDeviceSynchronize();
+	CUDA_ERROR(cudaStat);
 
-	dropOperator<<<blocks,threads>>>(m_dropRate,wLen,m_rate);
-	cudaDeviceSynchronize();
-
-	weightOperator<<<blocks,threads>>>(m_afterDropWeight,m_weight,m_dropRate,wLen,m_rate,bPred);
-	cudaDeviceSynchronize();
+	weightOperator<<<blocks,threads>>>(m_afterDropWeight,m_weight,m_dropProbability,wLen,m_dropRate,bPred);
+	cudaStat=cudaDeviceSynchronize();
+	CUDA_ERROR(cudaStat);
 
 	matrixMulTA(srcData,batch,m_inputNumFeature,m_afterDropWeight,m_curNumFeature,m_inputNumFeature,m_fullNoActiveData,m_curNumFeature);
 
 	blocks=batch;
 	threads=min(1024,m_curNumFeature);
 	feedForwardActive<<<blocks,threads>>>(m_fullData,m_fullNoActiveData,m_bias,m_curNumFeature,activeType);
-	cudaDeviceSynchronize();
+	cudaStat=cudaDeviceSynchronize();
+	CUDA_ERROR(cudaStat);
 }
 
 
-double CFullLayer::getCost()
+double CFullLayerGPU::getCost(DLparam& params)
 {
 	int dataSize=m_curNumFeature*m_inputNumFeature;
 	double finSum=getWeightCost(m_weight,dataSize);
@@ -214,24 +177,24 @@ __global__ void dFullActive(
 	deltaDataD[index]=deltaData[index]*d_fActiveFun(fullNoActiveData[index],type);
 }
 
-int CFullLayer::backpropagation(double* nexDeltas,int activeType)
+void CFullLayerGPU::backpropagation(double* preDeltas,DLparam& params)
 {
-
-	dFullActive<<<batch,m_curNumFeature>>>(nexDeltas,
-											  m_fullDelta,
+	int activeType=params.activeType;
+	dFullActive<<<batch,m_curNumFeature>>>(m_delta,
+											  m_delta,
 											  m_fullNoActiveData,
 										      activeType);
-	cudaDeviceSynchronize();
+	cudaError_t cudaStat=cudaDeviceSynchronize();
+	CUDA_ERROR(cudaStat);
 
 	//因为CUDA以列为主，所以我这里把传入的x,y调换，保证结果以行为主
-	matrixMul(m_fullDelta,batch,m_curNumFeature,m_afterDropWeight,m_curNumFeature,m_inputNumFeature,m_delta,m_inputNumFeature);
-	return 0;
+	matrixMul(m_delta,batch,m_curNumFeature,m_afterDropWeight,m_curNumFeature,m_inputNumFeature,preDeltas,m_inputNumFeature);
 }
 
-void CFullLayer::getGrad(double* srcData)
+void CFullLayerGPU::getGrad(double* srcData)
 {
-
-	matrixMulTB(m_fullDelta,m_curNumFeature,srcData,batch,m_inputNumFeature,m_weightGrad,m_inputNumFeature);
+	cudaError_t cudaStat;
+	matrixMulTB(m_delta,m_curNumFeature,srcData,batch,m_inputNumFeature,m_weightGrad,m_inputNumFeature);
 
 	dim3 blocks(m_curNumFeature,m_inputNumFeature);
 
@@ -241,17 +204,18 @@ void CFullLayer::getGrad(double* srcData)
 	dim3 threads2 = min(1024, wLen); 
 	dim3 blocks2  = min(1024, (wLen + threads2.x - 1) / threads2.x); 
 
-	fullWeightGrad2<<<blocks2,threads2>>>(m_weightGrad,m_weight,m_dropRate,wLen,m_lambda,batch);
+	fullWeightGrad2<<<blocks2,threads2>>>(m_weightGrad,m_weight,m_dropProbability,wLen,m_lambda,batch);
+	cudaStat=cudaDeviceSynchronize();
+	CUDA_ERROR(cudaStat);
 
-	cudaDeviceSynchronize();
-
-	fullBiasGrad<<<m_curNumFeature,threadNum,sizeof(double)*threadNum>>>(m_fullDelta,
+	fullBiasGrad<<<m_curNumFeature,threadNum,sizeof(double)*threadNum>>>(m_delta,
 							   m_biasGrad,
 							   batch);
-	cudaDeviceSynchronize();
+	cudaStat=cudaDeviceSynchronize();
+	CUDA_ERROR(cudaStat);
 }
 
-void CFullLayer::updateWeight(float mom,float alpha)
+void CFullLayerGPU::updateWeight(float mom,float alpha)
 {
 	int threadNum=min(1024,m_inputNumFeature);
 	g_weightAndBiasAdd<<<m_curNumFeature,threadNum>>>(m_weight,m_weightGrad,
@@ -259,6 +223,6 @@ void CFullLayer::updateWeight(float mom,float alpha)
 												      m_biasGrad,m_vecBias,
 												      m_inputNumFeature,
 												      mom,alpha);
-
-	cudaDeviceSynchronize();
+	cudaError_t cudaStat=cudaDeviceSynchronize();
+	CUDA_ERROR(cudaStat);
 }

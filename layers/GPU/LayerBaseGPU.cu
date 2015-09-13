@@ -1,4 +1,4 @@
-#include"LayerBase.cuh"
+#include"LayerBaseGPU.cuh"
 #include<cublas_v2.h>
 
 cublasHandle_t g_handle=NULL;
@@ -13,139 +13,98 @@ __global__ void getGPUWeightValue(double*value,int index,double* weight)
 	*value=weight[index];
 }
 
-int CLayer::save(FILE* fp)
+int CLayerGPU::save(FILE* fp)
 {
 	cudaError_t cudaStat;
 	double* pTmp=new double[m_weightLen+m_curNumFeature];
+	DL_ASSER(pTmp);
+
 	cudaStat=cudaMemcpy(pTmp,m_weight,sizeof(double)*m_weightLen,cudaMemcpyDeviceToHost);
-	if(cudaStat!=cudaSuccess)
-	{	
-		printf ("(Save file)device memory cudaMemcpy failed\n"); 
-		return -2;
-	}
+	CUDA_ERROR(cudaStat);
+
 	cudaStat=cudaMemcpy(pTmp+m_weightLen,m_bias,sizeof(double)*m_curNumFeature,cudaMemcpyDeviceToHost);
-	if(cudaStat!=cudaSuccess)
-	{	
-		printf ("(Save file)device memory cudaMemcpy failed\n"); 
-		return -2;
-	}
+	CUDA_ERROR(cudaStat);
+
 	fwrite(pTmp,sizeof(double)*(m_weightLen+m_curNumFeature),1,fp);
+
+	cudaStat=cudaMemcpy(pTmp,m_vecWeight,sizeof(double)*m_weightLen,cudaMemcpyDeviceToHost);
+	CUDA_ERROR(cudaStat);
+
+	cudaStat=cudaMemcpy(pTmp+m_weightLen,m_vecBias,sizeof(double)*m_curNumFeature,cudaMemcpyDeviceToHost);
+	CUDA_ERROR(cudaStat);
+
+	fwrite(pTmp,sizeof(double)*(m_weightLen+m_curNumFeature),1,fp);
+
 	delete [] pTmp;
 	return PK_SUCCESS;
 }
 
-CLayer::CLayer()
-{
-	m_vecBias=m_vecWeight=m_weight=m_bias=m_weightGrad=m_biasGrad=m_delta=NULL;
-}
-
-int CLayer::load(FILE*fp)
+int CLayerGPU::load(FILE*fp)
 {
 	cudaError_t cudaStat;
 	double* pTmp=new double[m_weightLen+m_curNumFeature];
+	DL_ASSER(pTmp!=NULL);
+
 	fread(pTmp,sizeof(double)*(m_weightLen+m_curNumFeature),1,fp);
 	cudaStat=cudaMemcpy(m_weight,pTmp,sizeof(double)*m_weightLen,cudaMemcpyHostToDevice);
-	if(cudaStat!=cudaSuccess)
-	{	
-		printf ("(Load file)device memory cudaMemcpy failed\n"); 
-		return -2;
-	}
+	CUDA_ERROR(cudaStat);
+
 	cudaStat=cudaMemcpy(m_bias,pTmp+m_weightLen,sizeof(double)*m_curNumFeature,cudaMemcpyHostToDevice);
-	if(cudaStat!=cudaSuccess)
-	{	
-		printf ("(Load file)device memory cudaMemcpy failed\n"); 
-		return -2;
-	}
+	CUDA_ERROR(cudaStat);
+
+	fread(pTmp,sizeof(double)*(m_weightLen+m_curNumFeature),1,fp);
+	cudaStat=cudaMemcpy(m_vecWeight,pTmp,sizeof(double)*m_weightLen,cudaMemcpyHostToDevice);
+	CUDA_ERROR(cudaStat);
+
+	cudaStat=cudaMemcpy(m_vecBias,pTmp+m_weightLen,sizeof(double)*m_curNumFeature,cudaMemcpyHostToDevice);
+	CUDA_ERROR(cudaStat);
+
 	delete [] pTmp;
 	return PK_SUCCESS;
 }
 
-int CLayer::initMem()
+int CLayerGPU::initMem()
 {
 	cudaError_t cudaStat;
 	cudaStat=cudaMalloc((void**)&m_vecBias,sizeof(double)*m_curNumFeature);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n"); 
-		freeMem();
-		return -1;
-	}
+	CUDA_ERROR(cudaStat);
+
 	cudaStat=cudaMemset(m_vecBias,0,sizeof(double)*m_curNumFeature);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMemset failed\n"); 
-		freeMem();
-		return -2;
-	}
+	CUDA_ERROR(cudaStat);
 
 	cudaStat=cudaMalloc((void**)&m_bias,sizeof(double)*m_curNumFeature);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n"); 
-		freeMem();
-		return -1;
-	}
+	CUDA_ERROR(cudaStat);
+
 	cudaStat=cudaMemset(m_bias,0,sizeof(double)*m_curNumFeature);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMemset failed\n"); 
-		freeMem();
-		return -2;
-	}
+	CUDA_ERROR(cudaStat);
 
 	cudaStat=cudaMalloc((void**)&m_biasGrad,sizeof(double)*m_curNumFeature);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n"); 
-		freeMem();
-		return -1;
-	}
+	CUDA_ERROR(cudaStat);
 
 	cudaStat=cudaMalloc((void**)&m_weight,sizeof(double)*m_weightLen);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n");  
-		freeMem();
-		return -1;
-	}
+	CUDA_ERROR(cudaStat);
+
 	double* pData=new double[m_weightLen];
-	randn(pData,m_weightLen);
+	DL_ASSER(pData!=NULL);
+
+	pk::randn(pData,m_weightLen);
 	cudaStat=cudaMemcpy(m_weight,pData,sizeof(double)*m_weightLen, cudaMemcpyHostToDevice);
 	delete [] pData;
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMemcpy failed\n"); 
-		freeMem();
-		return -1;
-	}
+	CUDA_ERROR(cudaStat);
 
 	cudaStat=cudaMalloc((void**)&m_weightGrad,sizeof(double)*m_weightLen);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n");  
-		freeMem();
-		return -1;
-	}
+	CUDA_ERROR(cudaStat);
 
 	cudaStat=cudaMalloc((void**)&m_vecWeight,sizeof(double)*m_weightLen);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf("device memory cudaMalloc failed\n");  
-		freeMem();
-		return -1;
-	}
+	CUDA_ERROR(cudaStat);
 
 	cudaStat=cudaMemset(m_vecWeight,0,sizeof(double)*m_weightLen);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf("device memory cudaMemset failed\n");  
-		freeMem();
-		return -2;
-	}
+	CUDA_ERROR(cudaStat);
+
 	return PK_SUCCESS;
 }
 
-void CLayer::freeMem()
+void CLayerGPU::freeMem()
 {
 	GPU_FREE(m_vecBias);
 	GPU_FREE(m_vecWeight);
@@ -156,12 +115,12 @@ void CLayer::freeMem()
 	GPU_FREE(m_delta);
 }
 
-void CLayer::setWeightValue(int index,double value)
+void CLayerGPU::setWeightValue(int index,double value)
 {
 	setGPUWeightValue<<<1,1>>>(index,m_weight,value);
 }
 
-double CLayer::getWeightValue(int index)
+double CLayerGPU::getWeightValue(int index)
 {
 	double*value=NULL;
 	cudaMalloc((void**)&value,sizeof(double));
@@ -183,12 +142,12 @@ __global__ void getGPUBiasValue(double*value,int index,double* bias)
 }
 
 
-void CLayer::setBiasValue(int index,double value)
+void CLayerGPU::setBiasValue(int index,double value)
 {
 	setGPUBiasValue<<<1,1>>>(index,m_bias,value);
 }
 
-double CLayer::getBiasValue(int index)
+double CLayerGPU::getBiasValue(int index)
 {
 	double*value=NULL;
 	cudaMalloc((void**)&value,sizeof(double));
@@ -237,17 +196,20 @@ double getWeightCost(double* devWeight,unsigned int dataSize)
 
 	double* result=NULL;
 
-	cudaMalloc((void**) &result, sizeof(double) * BLOCK_NUM);
+	cudaError_t cudaStat=cudaMalloc((void**) &result, sizeof(double) * BLOCK_NUM);
+	CUDA_ERROR(cudaStat);
 
 	sumOfSquares<<<BLOCK_NUM, THREAD_NUM,
         THREAD_NUM * sizeof(double)>>>(devWeight,dataSize,result);
-
-	cudaDeviceSynchronize();
+	cudaStat=cudaDeviceSynchronize();
+	CUDA_ERROR(cudaStat);
 
 	double sum[BLOCK_NUM];
-    cudaMemcpy(sum, result, sizeof(double) * BLOCK_NUM,cudaMemcpyDeviceToHost);
+    cudaStat=cudaMemcpy(sum, result, sizeof(double) * BLOCK_NUM,cudaMemcpyDeviceToHost);
+	CUDA_ERROR(cudaStat);
 
-    cudaFree(result);
+    cudaStat=cudaFree(result);
+	CUDA_ERROR(cudaStat);
 
    double finSum = 0;
     for(int i = 0; i < BLOCK_NUM; i++)
@@ -386,13 +348,12 @@ __global__ void g_fullConnect(
 
 void matrixMulTB(double * x,int colsX,double*y,int rowsY,int colsY,double*z,int colsZ) 
 {  
-	cublasStatus_t ret=CUBLAS_STATUS_SUCCESS;
+	cublasStatus_t stat=CUBLAS_STATUS_SUCCESS;
 	if(g_handle==NULL)
-		ret = cublasCreate(&g_handle);
-	if(ret != CUBLAS_STATUS_SUCCESS)
-		printf( "cublasSgemm returned error code");
-
- 	cublasStatus_t stat; 
+	{
+		stat = cublasCreate(&g_handle);
+		CUBLAS_ERROR(stat);
+	}
  	double alpha = 1.0; 
  	double beta = 0.0; 
  	stat = cublasDgemm( 
@@ -411,22 +372,17 @@ void matrixMulTB(double * x,int colsX,double*y,int rowsY,int colsY,double*z,int 
  		z, 
  		colsZ); 
  	cudaDeviceSynchronize(); 
- 	if(stat != CUBLAS_STATUS_SUCCESS) 
-	{ 
- 		printf("matrixMulTA cublasSgemm error\n"); 
-		exit(0); 
-	} 
+ 	CUBLAS_ERROR(stat);
 } 
 
 void matrixMul(double * x,int rowsX,int colsX,double*y,int rowsY,int colsY,double*z,int colsZ) 
 {  
-	cublasStatus_t ret=CUBLAS_STATUS_SUCCESS;
+	cublasStatus_t stat=CUBLAS_STATUS_SUCCESS;
 	if(g_handle==NULL)
-		ret = cublasCreate(&g_handle);
-	if(ret != CUBLAS_STATUS_SUCCESS)
-		printf( "cublasSgemm returned error code");
-
- 	cublasStatus_t stat; 
+	{
+		stat = cublasCreate(&g_handle);
+		CUBLAS_ERROR(stat);
+	}
  	double alpha = 1.0; 
  	double beta = 0.0; 
  	stat = cublasDgemm( 
@@ -445,22 +401,17 @@ void matrixMul(double * x,int rowsX,int colsX,double*y,int rowsY,int colsY,doubl
  		z, 
  		colsZ); 
  	cudaDeviceSynchronize(); 
- 	if(stat != CUBLAS_STATUS_SUCCESS) 
-	{ 
- 		printf("matrixMulTA cublasSgemm error\n"); 
-		exit(0); 
-	} 
+ 	CUBLAS_ERROR(stat);
 } 
 
 void matrixMulTA(double * x,int rowsX,int colsX,double*y,int rowsY,int colsY,double*z,int colsZ) 
 {  
-	cublasStatus_t ret=CUBLAS_STATUS_SUCCESS;
+	cublasStatus_t stat=CUBLAS_STATUS_SUCCESS;
 	if(g_handle==NULL)
-		ret = cublasCreate(&g_handle);
-	if(ret != CUBLAS_STATUS_SUCCESS)
-		printf( "cublasSgemm returned error code");
-
- 	cublasStatus_t stat; 
+	{
+		stat = cublasCreate(&g_handle);
+		CUBLAS_ERROR(stat);
+	}
  	double alpha = 1.0; 
  	double beta = 0.0; 
  	stat = cublasDgemm( 
@@ -479,9 +430,5 @@ void matrixMulTA(double * x,int rowsX,int colsX,double*y,int rowsY,int colsY,dou
  		z, 
  		colsZ); 
  	cudaDeviceSynchronize(); 
- 	if(stat != CUBLAS_STATUS_SUCCESS) 
-	{ 
- 		printf("matrixMulTA cublasSgemm error\n"); 
-		exit(0); 
-	} 
+ 	CUBLAS_ERROR(stat);
 } 

@@ -3,15 +3,21 @@
 #include "pkDefine.h"
 #include"PCA.h"
 #include "CpkMat.h"
-
+#include<vector>
 
 namespace pk
 {
 
 	enum ZOOM_TYPE
 	{ 
-		NEAREST,
+		NEAREST=0,
 		BILINEAR,
+	};
+
+	enum CHANGE_IMAGE_FORMAT
+	{
+		BGR2HSV=0,
+		BGR2GRAY,
 	};
 
 	int imwrite(const char*path,CpkMat& src);
@@ -32,16 +38,23 @@ namespace pk
 	//腐蚀：
 	int erosion(CpkMat&dest,CpkMat&src,CpkMat&mask);
 
-	//获取RGB三通道
-	int GetRGBchannel(CpkMat&src,CpkMat& colorR,CpkMat&colorG,CpkMat& colorB);
-	//rgb转灰度
-	bool RGBtoGrayscale(CpkMat&dest,CpkMat&src);
+	//获取通道(注意RGB返回顺序是BGR)
+	int Split(CpkMat&src,std::vector<CpkMat>& mats);
+
+	//改变图片格式
+	int ChangeImageFormat(CpkMat src,CpkMat&dest,CHANGE_IMAGE_FORMAT);
+
+	//直方图均衡化
+	int EqualizeHist(CpkMat& dest,CpkMat& src);
 
 	//反色
 	int RevColor(CpkMat&dest,CpkMat&src);
 
 	//缩放
 	int zoom(CpkMat&dest,int widthOut,int heighOut,CpkMat&src,ZOOM_TYPE type);
+
+	//等比例缩放，再把较长的边裁剪
+	int zoomMidImage(CpkMat& dd,int zoomSize,ZOOM_TYPE type);
 
 	//上下翻转
 	int UpDown(CpkMat&dest,CpkMat&src);

@@ -1,8 +1,13 @@
 #include <tchar.h>
+#include <Windows.h>
+#include<vector>
+
 #include "Cnn.h"
 #include "..\\Common\\PKImageFunctions.h"
+#include "..\Common\opencv\transplant.h"
+#include"..\CNNConfig\CNNConfig.h"
 
-CCNN g_cnn;
+using namespace std;
 
 int readFlippedInteger(FILE *fp)
 {   
@@ -56,6 +61,7 @@ int LoadCIFAR10(const char* imagesPath,int number,Data& imgs, std::vector<int>& 
 {
 	char dataPath[250]={0};
 	BYTE buffer[32*32]={0};
+	imgs.Resize(number*10000,32*32,3,CpkMat::DATA_DOUBLE);
 	for(int i=0;i<number;i++)
 	{
 		if(number==1)
@@ -70,426 +76,73 @@ int LoadCIFAR10(const char* imagesPath,int number,Data& imgs, std::vector<int>& 
 		}	
 		for(int j=0;j<10000;j++)
 		{
-			std::vector<CpkMat> tmpV;
 			char label;
 			fread(&label,1,sizeof(char),fp);
 			int dd=label;
 			labels.push_back(dd);
 			fread(buffer,1,32*32,fp);
 			CpkMat d(32,32,1,CpkMat::DATA_BYTE,buffer);
-//			pk::SaveImage("d:\\1.bmp",d);
+//			pk::imwrite("d:\\1.bmp",d);
 			d.Resize(CpkMat::DATA_DOUBLE);
 			d=d/255;
-			tmpV.push_back(d);
+			d=d.RowVector();
+			memcpy(imgs.GetData<double>()+(i*10000+j)*32*32*3,d.GetData<double>(),32*32*sizeof(double));
 
 			fread(buffer,1,32*32,fp);
 			d.Resize(32,32,1,CpkMat::DATA_BYTE,buffer);
-			//				pk::SaveImage("d:\\2.bmp",d);
+//			pk::imwrite("d:\\2.bmp",d);
 			d.Resize(CpkMat::DATA_DOUBLE);
 			d=d/255;
-			tmpV.push_back(d);
+			d=d.RowVector();
+			memcpy(imgs.GetData<double>()+(i*10000+j)*32*32*3+32*32,d.GetData<double>(),32*32*sizeof(double));
 
 			fread(buffer,1,32*32,fp);
 			d.Resize(32,32,1,CpkMat::DATA_BYTE,buffer);
-//			pk::SaveImage("d:\\3.bmp",d);
+//			pk::imwrite("d:\\3.bmp",d);
 			d.Resize(CpkMat::DATA_DOUBLE);
 			d=d/255;
-			tmpV.push_back(d);
-
-//			imgs.push_back(tmpV);
+			d=d.RowVector();
+			memcpy(imgs.GetData<double>()+(i*10000+j)*32*32*3+32*32*2,d.GetData<double>(),32*32*sizeof(double));
 		}
 	fclose(fp);
 	}
 	return PK_SUCCESS;
 }
-/*
-int runCIFAR(bool bCheckGrad=true,bool bTest=false)
+
+int cutImage(CpkMat&images,CpkMat&src,vector<pk::Rect>&rects,int destSize,float scaleFactor=1.1,int minFaceSize=20)
 {
-	TCHAR path[256]={0};
-	GetModuleFileName(NULL,path, MAX_PATH); 
-	(_tcsrchr(path, _T('\\')))[1] = 0;
-
-	if(bCheckGrad)
+	int index=0;
+	while(minFaceSize<(src.Row/2+1)||minFaceSize>(src.Col/2+1))
 	{
-		testCIFARNetwork(path);
-		return 0;
-	}
-	CCNN::CNNLayer c1;
-	int filterDim=5;
-	c1.filterH=c1.filterW=filterDim;
-	c1.inputSize=3;
-	c1.numFeature=10;
-	c1.type='c';
-
-	CCNN::CNNLayer c2;
-	c2.filterH=c2.filterW=3;
-	c2.inputSize=c1.numFeature;
-	c2.numFeature=15;
-	c2.type='c';
-
-	CCNN::CNNLayer c3;
-	c3.filterH=c3.filterW=filterDim;
-	c3.inputSize=c2.numFeature;
-	c3.numFeature=50;
-	c3.type='c';
-
-	CCNN::CNNLayer f;
-	f.numFeature=256;
-	f.type='f';
-
-	CCNN::CNNLayer s;
-	s.numFeature=10;
-	s.type='s';
-	std::vector<CCNN::CNNLayer> mess;
-	mess.push_back(c1);
-	mess.push_back(c2);
-	mess.push_back(c3);
-	mess.push_back(f);
-	mess.push_back(f);
-	mess.push_back(s);
-
-	Data imgs;
-	std::vector<int> labels;
-
-	TCHAR dataPath[256]={0};
-
-	BYTE* buffer=new BYTE[32*32+1];
-	if(!bTest)
-	{
-		for(int i=0;i<5;i++)
-		{
-			sprintf(dataPath,_T("%sdata\\CIFAR10\\data_batch_%d.bin"),path,i+1);
-			FILE *fp=fopen(dataPath,"rb+");
-			if(fp==NULL)
-			{
-				printf("训练集不存在\n");
-				return -1;
-			}
-			
-			for(int j=0;j<10000;j++)
-			{
-				std::vector<CpkMat> tmpV;
-				char label;
-				fread(&label,1,sizeof(char),fp);
-				int dd=label;
-				labels.push_back(dd);
-				fread(buffer,1,32*32,fp);
-				CpkMat d(32,32,1,CpkMat::DATA_BYTE,buffer);
-//				pk::SaveImage("d:\\1.bmp",d);
-				d.Resize(CpkMat::DATA_DOUBLE);
-				d=d/255;
-				tmpV.push_back(d);
-
-				fread(buffer,1,32*32,fp);
-				d.Resize(32,32,1,CpkMat::DATA_BYTE,buffer);
-//				pk::SaveImage("d:\\2.bmp",d);
-				d.Resize(CpkMat::DATA_DOUBLE);
-				d=d/255;
-				tmpV.push_back(d);
-
-				fread(buffer,1,32*32,fp);
-				d.Resize(32,32,1,CpkMat::DATA_BYTE,buffer);
-//				pk::SaveImage("d:\\3.bmp",d);
-				d.Resize(CpkMat::DATA_DOUBLE);
-				d=d/255;
-				tmpV.push_back(d);
-
-				imgs.push_back(tmpV);
-			}
-			fclose(fp);
-		}
-	}
-	else
-	{
-		sprintf(dataPath,_T("%sdata\\test_batch.bin"),path);
-		FILE *fp=fopen(dataPath,"rb+");
-
-		for(int j=0;j<10000;j++)
-		{
-			std::vector<CpkMat> tmpV;
-			char label;
-			fread(&label,1,sizeof(char),fp);
-			int dd=label;
-			labels.push_back(dd);
-			fread(buffer,1,32*32,fp);
-			CpkMat d(32,32,1,CpkMat::DATA_BYTE,buffer);
-//			pk::SaveImage("d:\\1.bmp",d);
-			d.Resize(CpkMat::DATA_DOUBLE);
-			d=d/255;
-			tmpV.push_back(d);
-
-			fread(buffer,1,32*32,fp);
-			d.Resize(32,32,1,CpkMat::DATA_BYTE,buffer);
-//			pk::SaveImage("d:\\2.bmp",d);
-			d.Resize(CpkMat::DATA_DOUBLE);
-			d=d/255;
-			tmpV.push_back(d);
-
-			fread(buffer,1,32*32,fp);
-			d.Resize(32,32,1,CpkMat::DATA_BYTE,buffer);
-//			pk::SaveImage("d:\\3.bmp",d);
-			d.Resize(CpkMat::DATA_DOUBLE);
-			d=d/255;
-			tmpV.push_back(d);
-
-			imgs.push_back(tmpV);
-		}
-		fclose(fp);
+		for(int i=0;i<src.Row-minFaceSize;i+=minFaceSize)
+			for(int j=0;j<src.Col-minFaceSize;j+=minFaceSize)
+				rects.push_back(pk::Rect(j,i,minFaceSize,minFaceSize));
+		minFaceSize*=scaleFactor;
 	}
 
-	MinSGD sgd;
-	sgd.alpha=0.005;
-	sgd.epoches=30;
-	sgd.minibatch=100;
-	sgd.momentum=0.9;
-	g_cnn.SetParam(sgd,0.5);
-
-	if(!bTest)
+	CpkMat tmp(rects.size(),destSize*destSize,src.Depth,CpkMat::DATA_DOUBLE);
+	for(int i=0;i<rects.size();i++)
 	{
-		g_cnn.init(mess,32,32);
-		g_cnn.cnnTrain(imgs,labels);
-		sprintf(dataPath,_T("%sdata\\theta.dat"),path);
-		g_cnn.save(dataPath);
+		CpkMat dd;
+		src.GetData(dd,rects[i].y,rects[i].y+rects[i].height,rects[i].x,rects[i].x+rects[i].width);
+		pk::zoom(dd,destSize,destSize,dd,pk::BILINEAR);
+		dd.Resize(CpkMat::DATA_DOUBLE);
+		dd=dd/255;
+		tmp.setRowData(i,dd.RowVector());
 	}
-	else
-	{
-		sprintf(dataPath,_T("%sdata\\theta.dat"),path);
-		g_cnn.init(mess,32,32,dataPath);
-		CpkMat pred;
-		g_cnn.cnnRun(pred,imgs);
-		int right=0;
-		for(int i=0;i<labels.size();i++)
-		{
-			if(pred.GetData<int>()[i]==labels[i])
-				right++;
-		}
-		printf("%.2lf",right/(double)labels.size()*100);
-	}
-	return 0;
-}
-
-
-
-int runORL(bool bCheckGrad=true,bool bTest=false)
-{
-	TCHAR path[256]={0};
-	GetModuleFileName(NULL,path, MAX_PATH); 
-	(_tcsrchr(path, _T('\\')))[1] = 0;
-
-
-	CCNN::CNNLayer c1;
-	int filterDim=5;
-	c1.filterH=c1.filterW=9;
-	c1.inputSize=1;
-	c1.numFeature=60;
-	c1.type='c';
-
-	CCNN::CNNLayer c2;
-	c2.filterH=c2.filterW=5;
-	c2.inputSize=c1.numFeature;
-	c2.numFeature=100;
-	c2.type='c';
-
-	CCNN::CNNLayer c3;
-	c3.filterH=c3.filterW=3;
-	c3.inputSize=c2.numFeature;
-	c3.numFeature=180;
-	c3.type='c';
-
-	CCNN::CNNLayer c4;
-	c4.filterH=c4.filterW=3;
-	c4.inputSize=c3.numFeature;
-	c4.numFeature=340;
-	c4.type='c';
-
-	CCNN::CNNLayer f;
-	f.numFeature=1024;
-	f.type='f';
-
-	CCNN::CNNLayer f2;
-	f2.numFeature=512;
-	f2.type='f';
-
-	CCNN::CNNLayer s;
-	s.numFeature=2;
-	s.type='s';
-	std::vector<CCNN::CNNLayer> mess;
-	mess.push_back(c1);
-	mess.push_back(c2);
-	mess.push_back(c3);
-	mess.push_back(c4);
-	mess.push_back(f);
-	mess.push_back(f);
-	mess.push_back(f2);
-	mess.push_back(s);
-
-	Data imgs;
-	std::vector<int> labels;
-
-	TCHAR dataPath[256]={0};
-
-	MinSGD sgd;
-	sgd.alpha=0.00005;
-	sgd.epoches=700;
-	sgd.minibatch=5;
-	sgd.momentum=0.9;
-	g_cnn.SetParam(sgd,0.5);
-
-	if(!bTest)
-	{
-		for(int i=1;i<21;i++)
-		{
-			if(i<10)
-				sprintf(dataPath,"G:\\ORL\\orl00%d.bmp",i);
-			else if(i<100)
-				sprintf(dataPath,"G:\\ORL\\orl0%d.bmp",i);
-			else
-				sprintf(dataPath,"G:\\ORL\\orl%d.bmp",i);
-			CpkMat d;
-			pk::loadImage(dataPath,d);
-			pk::zoom(d,88,88,d,pk::ZOOM_TYPE::BILINEAR);
-			std::vector<CpkMat> tmpV;
-			int label;
-			if(i>10&&i<21)
-				label=1;
-			else
-				label=0;
-			
-			d.Resize(CpkMat::DATA_DOUBLE);
-			d=d/255;
-			tmpV.push_back(d);
-			for(int i=0;i<10;i++)
-			{
-				imgs.push_back(tmpV);
-				labels.push_back(label);
-			}
-		}
-
-		g_cnn.init(mess,88,88);
-		g_cnn.cnnTrain(imgs,labels);
-		sprintf(dataPath,_T("%sdata\\theta.dat"),path);
-		g_cnn.save(dataPath);
-	}
-	else
-	{
-		for(int i=201;i<401;i++)
-		{
-			if(i<10)
-				sprintf(dataPath,"G:\\ORL\\orl00%d.bmp",i);
-			else if(i<100)
-				sprintf(dataPath,"G:\\ORL\\orl0%d.bmp",i);
-			else
-				sprintf(dataPath,"G:\\ORL\\orl%d.bmp",i);
-			CpkMat d;
-			pk::loadImage(dataPath,d);
-			pk::zoom(d,88,88,d,pk::ZOOM_TYPE::BILINEAR);
-			std::vector<CpkMat> tmpV;
-			int label;
-			if(i>10&&i<21)
-				label=1;
-			else
-				label=0;
-			labels.push_back(label);
-			d.Resize(CpkMat::DATA_DOUBLE);
-			d=d/255;
-			tmpV.push_back(d);
-			imgs.push_back(tmpV);
-		}
-
-		sprintf(dataPath,_T("%sdata\\theta.dat"),path);
-		g_cnn.init(mess,88,88,dataPath);
-		CpkMat pred;
-		g_cnn.cnnRun(pred,imgs);
-		int right=0;
-		for(int i=0;i<labels.size();i++)
-		{
-			if(pred.GetData<int>()[i]!=labels[i])
-			{
-				printf("error:%d: E-%d  R-%d\n",i,pred.GetData<int>()[i],labels[i]);
-			}
-			else
-				right++;
-		}
-		printf("%.2lf",right/(double)labels.size()*100);
-	}
-	return 0;
-}
-*/
-
-
-bool InitCUDA()
-{
-    int count;
-    cudaGetDeviceCount(&count);
-    if(count == 0) 
-	{
-        fprintf(stderr, "找不到N卡\n");
-        return false;
-    }
-    int i;
-    for(i = 0; i < count; i++) 
-	{
-        cudaDeviceProp prop;
-        if(cudaGetDeviceProperties(&prop, i) == cudaSuccess) 
-		{
-            if(prop.major >= 1) 
-                break;
-        }
-    }
-    if(i == count) 
-	{
-        fprintf(stderr, "当前驱动程序不支持CUDA\n");
-        return false;
-    }
-    cudaSetDevice(i);
-    return true;
-}
-
-
-#include <Windows.h>
-
-void findDirectory(const char*directoryPath,std::vector<std::string>& lists)
-{
-#if defined(_MSC_VER)
-	char path[256]={0};
-	strcpy(path,directoryPath);
-	strcat(path,"\\*.*");
-
-	WIN32_FIND_DATA fd;
-	HANDLE hFind = ::FindFirstFile(path, &fd);
-	if(hFind != INVALID_HANDLE_VALUE)
-	{
-		do
-		{
-			if( lstrcmp(fd.cFileName, TEXT(".")) == 0 ||
-				lstrcmp(fd.cFileName, TEXT("..")) == 0 )
-			{
-				continue;
-			}
-			strcpy(path,directoryPath);
-			strcat(path,"\\");
-			strcat(path,fd.cFileName);
-			lists.push_back(path);
-		}
-		while(::FindNextFile(hFind, &fd));
-		::FindClose(hFind);
-	}
-#endif
+	images=tmp;
+	return PK_SUCCESS;
 }
 
 int main()
 {
-	if(!InitCUDA())
-	{
-		system("pause");
-		return 0;
-	}
-	TCHAR path[256]={0};
-	GetModuleFileName(NULL,path, MAX_PATH); 
-	(_tcsrchr(path, _T('\\')))[1] = 0;
+	CCNN g_cnn;
+	TCHAR exePath[256]={0};
+	GetModuleFileName(NULL,exePath, MAX_PATH); 
+	(_tcsrchr(exePath, _T('\\')))[1] = 0;
 
 	CpkMat trainImgs,testImgs,predImgs;
-	std::vector<int> trainLabels,testLabels,predLabels;
+	std::vector<int> trainLabels,testLabels;
 	std::vector<std::string> corrpath,errorPath;
 	TCHAR dataPath[256]={0};
 	TCHAR labelsPath[256]={0};
@@ -509,140 +162,133 @@ int main()
 
 	std::cout<<std::endl
 			 <<"选择操作:"<<std::endl
-			 <<"0:梯度测试"<<std::endl
+//			 <<"0:梯度测试"<<std::endl
 			 <<"1:训练"<<std::endl
-			 <<"2:测试"<<std::endl
-			 <<"3:预测"<<std::endl;
+			 <<"2:继续训练"<<std::endl
+			 <<"3:测试(只支持MNIST,CIFAR10)"<<std::endl
+			 <<"4:预测(只支持MYSELFT)"<<std::endl;
 	int runMode=-1;
 	for(;;)
 	{
 		std::cout<<"选择:";
 		std::cin>>runMode;
-		if(runMode<4&&runMode>=0)
+		if(runMode<5&&runMode>=0)
 			break;
 	}
 
-	std::cout<<std::endl
+	int imgPreDeal=0;
+/*	std::cout<<std::endl
 			 <<"数据预处理操作:"<<std::endl
 			 <<"0:不用"<<std::endl
 			 <<"1:ZCA白化"<<std::endl;
-	int imgPreDeal=0;
 	for(;;)
 	{
 		std::cout<<"选择:";
 		std::cin>>imgPreDeal;
 		if(imgPreDeal>=0&&imgPreDeal<2)
 			break;
-	}
+	}*/
 
+	switch(choiceDataSet)
+	{
+	case 1:
+		sprintf(dataPath,_T("%sdata\\config\\cnn_mnist.config"),exePath);
+		break;
+	case 2:
+		sprintf(dataPath,_T("%sdata\\config\\cnn_cifar10.config"),exePath);
+		break;
+	default:
+		sprintf(dataPath,_T("%sdata\\config\\cnn_myselft.config"),exePath);
+		break;
+	}
+	CCNNConfig c;
+	int nRet=c.loadConfig(dataPath);
+	if(nRet!=PK_SUCCESS)
+	{
+		printf("加载配置文件失败!\n\n");
+		goto error;
+	}
+	if(c.dataSetsPath.empty())
+	{
+		printf("请填写数据集所在文件夹路径！\n\n");
+		goto error;
+	}
 	if(choiceDataSet==1)
 	{
-		sprintf(dataPath,_T("%sdata\\mnist\\train-images-idx3-ubyte"),path);
-		sprintf(labelsPath,_T("%sdata\\mnist\\train-labels-idx1-ubyte"),path);
+		sprintf(dataPath,_T("%s\\train-images-idx3-ubyte"),c.dataSetsPath.c_str());
+		sprintf(labelsPath,_T("%s\\train-labels-idx1-ubyte"),c.dataSetsPath.c_str());
 		if(LoadMNIST(dataPath,trainImgs,labelsPath,trainLabels)!=PK_SUCCESS)
 		{
-			printf("加载训练集失败!");
-			return 0;
+			char mess[1024]={0};
+			sprintf(mess,"%s和%s不存在对应文件",dataPath,labelsPath);
+			printf(mess);
+			goto error;
 		}
-		sprintf(dataPath,_T("%sdata\\mnist\\t10k-images-idx3-ubyte"),path);
-		sprintf(labelsPath,_T("%sdata\\mnist\\t10k-labels-idx1-ubyte"),path);
+		sprintf(dataPath,_T("%s\\t10k-images-idx3-ubyte"),c.dataSetsPath.c_str());
+		sprintf(labelsPath,_T("%s\\t10k-labels-idx1-ubyte"),c.dataSetsPath.c_str());
 		if(LoadMNIST(dataPath,testImgs,labelsPath,testLabels)!=PK_SUCCESS)
 		{
-			printf("加载测试集失败!");
-			return 0;
+			char mess[1024]={0};
+			sprintf(mess,"%s和%s不存在对应文件",dataPath,labelsPath);
+			printf(mess);
+			goto error;
 		}
-		sprintf(dataPath,_T("%sdata\\config\\cnn_mnist.config"),path);
 	}
 	else if(choiceDataSet==2)
 	{
-		sprintf(dataPath,_T("%sdata\\CIFAR10"),path);
-//			if(LoadCIFAR10(dataPath,5,trainImgs,trainLabels)!=PK_SUCCESS)
-//			{
-//				printf("加载训练集失败!");
-//				return 0;
-//			}
-//			if(LoadCIFAR10(dataPath,1,testImgs,testLabels)!=PK_SUCCESS)
-//			{
-//				printf("加载测试集失败!");
-//				return 0;
-//			}
-			sprintf(dataPath,_T("%sdata\\config\\cnn_cifar10.config"),path);
+		if(LoadCIFAR10(c.dataSetsPath.c_str(),4,trainImgs,trainLabels)!=PK_SUCCESS)
+		{
+			char mess[1024]={0};
+			sprintf(mess,"%s不存在对应文件",dataPath,c.dataSetsPath.c_str());
+			printf(mess);
+			goto error;
+		}
+		if(LoadCIFAR10(dataPath,1,testImgs,testLabels)!=PK_SUCCESS)
+		{
+			char mess[1024]={0};
+			sprintf(mess,"%s不存在对应文件",dataPath,c.dataSetsPath.c_str());
+			printf(mess);
+			goto error;
+		}
 	}
 	else if(choiceDataSet==3)
 	{
 		CpkMat d;
 		int index=0;
-		if(runMode==0||runMode==1)
+		if(runMode==1||runMode==2)
 		{
-			findDirectory("D:\\CUDA\\project\\CNN\\Release\\data\\faces\\faces",corrpath);
-			findDirectory("D:\\CUDA\\project\\CNN\\Release\\data\\faces\\nofaces",errorPath);
-			trainImgs.Resize(15000*2,24*24,1,CpkMat::DATA_BYTE);
-
-			
-			for(int i=0;i<15000;i++)
+			int total=0;
+			std::vector<std::string> directs;
+			pk::findDirectsOrFiles(c.dataSetsPath.c_str(),directs,true);
+			if(directs.empty())
 			{
-				pk::imread(corrpath[i].c_str(),d);
-				pk::zoom(d,24,24,d,pk::BILINEAR);
-				trainImgs.setRowData(index++,d.RowVector());
-				trainLabels.push_back(1);
-
-				pk::imread(errorPath[i].c_str(),d);
-				pk::zoom(d,24,24,d,pk::BILINEAR);
-				trainImgs.setRowData(index++,d.RowVector());
-				trainLabels.push_back(0);
+				printf("训练集为空!");
+				goto error;
 			}
-			trainImgs.Resize(CpkMat::DATA_DOUBLE);
-			trainImgs=trainImgs/255;
-
-			corrpath.clear();
-			errorPath.clear();
-		}
-		if(runMode==2)
-		{
-			findDirectory("D:\\CUDA\\project\\CNN\\Release\\data\\faces\\facesTest",corrpath);
-			findDirectory("D:\\CUDA\\project\\CNN\\Release\\data\\faces\\nofacesTest",errorPath);
-
-			testImgs.Resize(5000*2,24*24,1,CpkMat::DATA_BYTE);
-			for(int i=0;i<5000;i++)
+			trainImgs.Resize(25000*2,c.imgDim*c.imgDim,1,CpkMat::DATA_DOUBLE);
+			for(int i=0;i<directs.size()&&total<50000;i++)
 			{
-				pk::imread(corrpath[i].c_str(),d);
-				pk::zoom(d,24,24,d,pk::BILINEAR);
-				testImgs.setRowData(index++,d.RowVector());
-				testLabels.push_back(1);
+				std::vector<std::string> files;
+				pk::findDirectsOrFiles(directs[i].c_str(),files);
+				for(int j=0;j<files.size()&&total<50000;j++,total++)
+				{
+					pk::imread(files[j].c_str(),d);
+					pk::ChangeImageFormat(d,d,pk::BGR2GRAY);
+					pk::zoomMidImage(d,c.imgDim,pk::BILINEAR);
+	
+					d.Resize(CpkMat::DATA_DOUBLE);
+					d=d/255;
 
-				pk::imread(errorPath[i].c_str(),d);
-				pk::zoom(d,24,24,d,pk::BILINEAR);
-				testImgs.setRowData(index++,d.RowVector());
-				testLabels.push_back(0);
+					trainImgs.setRowData(index++,d.RowVector());
+					trainLabels.push_back(i);
+				}
 			}
-			testImgs.Resize(CpkMat::DATA_DOUBLE);
-			testImgs=testImgs/255;
-
-			corrpath.clear();
-			errorPath.clear();
+			if(total<50000)
+				trainImgs.Row=total;
 		}
-		else
-		{
-			findDirectory("D:\\CUDA\\project\\CNN\\Release\\data\\faces\\pred",corrpath);
-			index=0;
-			predImgs.Resize(3700,24*24,1,CpkMat::DATA_BYTE);
-			for(int i=0;i<3700;i++)
-			{
-				pk::imread(corrpath[i].c_str(),d);
-				pk::zoom(d,24,24,d,pk::BILINEAR);
-				predImgs.setRowData(index++,d.RowVector());
-			}
-			predImgs.Resize(CpkMat::DATA_DOUBLE);
-			predImgs=predImgs/255;
-		}
-		sprintf(dataPath,_T("%sdata\\config\\cnn_faces.config"),path);
 	}
-
-	g_cnn.init(dataPath);
-
-	TCHAR exe_path[256]={0};
-	GetModuleFileName(NULL,exe_path, MAX_PATH); 
-	(_tcsrchr(exe_path, _T('\\')))[1] = 0;
+	g_cnn.setParam(c.sgd,c.activeFunType,c.runMode);
+	nRet=g_cnn.init(c.cnnLayers);
 
 	if(runMode==0)
 	{
@@ -653,7 +299,7 @@ int main()
 		else
 			printf("(检测通过)\n");
 	}
-	else if(runMode==1)
+	else if(runMode==1||runMode==2)
 	{
 		if(imgPreDeal==1)
 		{
@@ -665,24 +311,35 @@ int main()
 			trainImgs=pk::subVec(trainImgs,tmpMat,pk::DATA_ROWS);
 
 			pca.run(trainImgs,pk::DATA_COLS,pk::CPCA::ZCA_WHITE);
-			sprintf(dataPath,_T("%sdata\\pca.dat"),exe_path);
+			sprintf(dataPath,_T("%sdata\\pca.dat"),exePath);
 			pca.saveData(dataPath);
 
 			pca.project(trainImgs,pk::DATA_COLS);
 			trainImgs=trainImgs.Transpose();
 		}
-		g_cnn.cnnTrain(trainImgs,trainLabels);
 
-		sprintf(dataPath,_T("%sdata\\theta.dat"),exe_path);
+		sprintf(dataPath,_T("%sdata\\theta.dat"),exePath);
+
+		if(runMode==2)
+		{
+			if(g_cnn.load(dataPath)!=PK_SUCCESS)
+			{
+				printf("找不到权值数据所在文件或文件有问题，请重新生成!");
+				goto error;
+			}
+		}
+		
+		g_cnn.cnnTrain(trainImgs,trainLabels,dataPath,c.maxSaveCount);
+
 		g_cnn.save(dataPath);
 	}
-	else if(runMode==2)
+	else if(runMode==3)
 	{
-		sprintf(dataPath,_T("%sdata\\theta.dat"),exe_path);
+		sprintf(dataPath,_T("%sdata\\theta.dat"),exePath);
 		if(g_cnn.load(dataPath)!=PK_SUCCESS)
 		{
 			printf("找不到权值数据所在文件或文件有问题，请重新生成!");
-			return PK_FAIL;
+			goto error;
 		}
 
 		if(imgPreDeal==1)
@@ -694,7 +351,7 @@ int main()
 			pk::avg(tmpMat,testImgs,pk::DATA_COLS);
 			testImgs=pk::subVec(testImgs,tmpMat,pk::DATA_ROWS);
 
-			sprintf(dataPath,_T("%sdata\\pca.dat"),exe_path);
+			sprintf(dataPath,_T("%sdata\\pca.dat"),exePath);
 			pca.loadData(dataPath);
 
 			pca.project(testImgs,pk::DATA_COLS);
@@ -707,7 +364,7 @@ int main()
 		int testBatch=g_cnn.getMinSGDInfo().minibatch;
 		for(int i=0;i<testImgs.Row;i+=testBatch)
 		{
-			testImgs.GetData(tmpImg,i,i+testBatch,0,testImgs.lineSize*testImgs.Depth);
+			testImgs.GetData(tmpImg,i,i+testBatch,0,testImgs.lineSize);
 			g_cnn.cnnRun(pred,tmpImg);
 			printf("测试进度:%.2lf\b\b\b\b\b\b\b\b\b\b\b\b\b\b",100.0*(i+testBatch)/testImgs.Row);
 		}
@@ -718,14 +375,24 @@ int main()
 		}
 		printf("\n%.2lf\n",right/(double)testLabels.size()*100);
 	}
-	else if(runMode==3)
+	else if(runMode==4)
 	{
-		sprintf(dataPath,_T("%sdata\\theta.dat"),exe_path);
+		sprintf(dataPath,_T("%sdata\\theta.dat"),exePath);
 		if(g_cnn.load(dataPath)!=PK_SUCCESS)
 		{
 			printf("找不到权值数据所在文件或文件有问题，请重新生成!");
-			return PK_FAIL;
+			goto error;
 		}
+
+		int total=0;
+		std::vector<std::string> directs;
+		pk::findDirectsOrFiles(c.dataSetsPath.c_str(),directs,true);
+		if(directs.empty())
+		{
+			printf("测试集为空!");
+			goto error;
+		}
+		predImgs.Resize(10000,c.imgDim*c.imgDim,1,CpkMat::DATA_DOUBLE);
 
 		if(imgPreDeal==1)
 		{
@@ -736,7 +403,7 @@ int main()
 			pk::avg(tmpMat,predImgs,pk::DATA_COLS);
 			predImgs=pk::subVec(predImgs,tmpMat,pk::DATA_ROWS);
 
-			sprintf(dataPath,_T("%sdata\\pca.dat"),exe_path);
+			sprintf(dataPath,_T("%sdata\\pca.dat"),exePath);
 			pca.loadData(dataPath);
 
 			pca.project(predImgs,pk::DATA_COLS);
@@ -746,30 +413,43 @@ int main()
 		std::vector<double> pred;
 		Data tmpImg;
 		int testBatch=g_cnn.getMinSGDInfo().minibatch;
-		for(int i=0;i<predImgs.Row;i+=testBatch)
+		int index=0;
+		for(int i=0;i<directs.size();i++)
 		{
-			predImgs.GetData(tmpImg,i,i+testBatch,0,predImgs.lineSize*predImgs.Depth);
-			g_cnn.cnnRun(pred,tmpImg);
-			printf("测试进度:%.2lf\b\b\b\b\b\b\b\b\b\b\b\b\b\b",100.0*(i+testBatch)/predImgs.Row);
-		}
-		for(int i=0;i<pred.size();i++)
-			predLabels.push_back(pred[i]);
-	}
-
-	for(int i=0;i<predLabels.size();i++)
-	{
-		if(predLabels[i]==1)
- 		{
-			std::string mess="D:\\CUDA\\project\\CNN\\Release\\data\\faces\\real\\";
- 			int indexx=corrpath[i].rfind("\\")+1;
- 			mess+=corrpath[i].substr(indexx,corrpath[i].length()-indexx);
-//			pk::imwrite(mess.c_str(),predImgs[i][0]);
-			CopyFile(corrpath[i].c_str(),mess.c_str(),FALSE);
-		}
- 	}
-	system("pause");
-
+			std::vector<std::string> files;
+			pk::findDirectsOrFiles(directs[i].c_str(),files);
+			for(int j=0;j<files.size();j++)
+			{
+				CpkMat d;
+				pk::imread(files[j].c_str(),d);
+				pk::ChangeImageFormat(d,d,pk::BGR2GRAY);
+				pk::zoomMidImage(d,c.imgDim,pk::BILINEAR);
 	
+				d.Resize(CpkMat::DATA_DOUBLE);
+				d=d/255;
 
+				predImgs.setRowData(j,d.RowVector());
+			}
+			for(int k=0;k<files.size();k+=testBatch)
+			{
+				predImgs.GetData(tmpImg,k,k+testBatch,0,predImgs.lineSize*predImgs.Depth);
+				g_cnn.cnnRun(pred,tmpImg);
+				printf("第%d个文件夹预测进度:%.2lf\b\b\b\b\b\b\b\b\b\b\b\b\b\b",i,100.0*(k+testBatch)/files.size());
+			}
+
+			int first=directs[i].rfind('\\')+1;
+			std::string directName=directs[i].substr(first);
+
+			std::string savePath=std::string(exePath)+std::string("preds\\")+directName;
+			ofstream out(savePath+std::string(".txt"));
+			for(int i=0;i<pred.size();i++)
+				out << files[i] << "结果: " << pred[i];
+			out.close();
+		}
+	}
+	system("pause");
 	return 0;
+error:
+	system("pause");
+	return -1;
  }

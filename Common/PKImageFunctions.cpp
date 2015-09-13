@@ -201,7 +201,7 @@ namespace pk
 		return PK_SUCCESS;
 	}
 
-	bool RGBtoGrayscale(CpkMat&dest,CpkMat&src)
+	int RGBtoGrayscale(CpkMat src,CpkMat&dest)
 	{
 		CpkMat tmp;
 		BYTE* pSrc=src.GetData<BYTE>();
@@ -234,14 +234,63 @@ namespace pk
 			}
 		}
 		dest=tmp;
-		return true;
+		return PK_SUCCESS;
 	}
 
-	int GetRGBchannel(CpkMat&src,CpkMat& colorR,CpkMat&colorG,CpkMat& colorB)
+	int RGBtoHSV(CpkMat img,CpkMat&dst)
+	{
+		if(img.Depth<3)
+			return PK_NOT_ALLOW_OPERATOR;
+		int w=img.Col;  
+		int h=img.Row;  
+		dst.Resize(h,w,img.Depth,img.GetType());
+		BYTE* pData=img.GetData<BYTE>();
+		BYTE* pDest=dst.GetData<BYTE>();
+		for(int j=0;j<w;++j)  
+		{  
+			for(int i=0;i<h;++i)  
+			{  
+				int b=*(pData+i*img.lineSize+j*3); 
+				int g=*(pData+i*img.lineSize+j*3+1); 
+				int r=*(pData+i*img.lineSize+j*3+2);   
+				int maxval=std::max(b,std::max(g,r));  
+				int minval=std::min(b,std::min(g,r));  
+				int v=maxval;  
+				double diff=maxval-minval;  
+				int s=diff*255/(v+DBL_EPSILON);  
+
+				double h=0;  
+				diff=60/(diff+DBL_EPSILON);  
+				if(v==r)  
+				{  
+					h=(g-b)*diff;  
+				}  
+				else if(v==g)  
+				{  
+					h=(b-r)*diff+120.f;  
+				}  
+				else  
+				{  
+					h=(r-g)*diff+240.f;  
+				}  
+				if( h<0)  
+				{  
+					h+=360.f;  
+				}  
+				*(pDest+i*img.lineSize+j*3)=h/2;  
+				*(pDest+i*img.lineSize+j*3+1)=s;  
+				*(pDest+i*img.lineSize+j*3+2)=v;  
+			}  
+		}  
+		return PK_SUCCESS;
+	}
+
+	int Split(CpkMat&src,std::vector<CpkMat>& mats)
 	{
 		if(src.Depth<3)
 			return PK_NOT_ALLOW_OPERATOR;
 		int nLineByteOut=(src.Col+3)/4*4;
+		CpkMat colorR,colorG,colorB;
 		colorR.Resize(src.Row,nLineByteOut,1,src.GetType());
 		colorG.Resize(src.Row,nLineByteOut,1,src.GetType());
 		colorB.Resize(src.Row,nLineByteOut,1,src.GetType());
@@ -260,8 +309,25 @@ namespace pk
 				pR[i*nLineByteOut+j]=pSrc[i*src.lineSize+j*src.Depth+2];
 			}
 		}
-
+		mats.push_back(colorB);
+		mats.push_back(colorG);
+		mats.push_back(colorB);
 		return PK_SUCCESS;
+	}
+
+	int ChangeImageFormat(CpkMat src,CpkMat&dest,CHANGE_IMAGE_FORMAT type)
+	{
+		int nRet=PK_SUCCESS;
+		switch(type)
+		{
+		case BGR2HSV:
+			nRet=RGBtoHSV(src,dest);
+			break;
+		case BGR2GRAY:
+			nRet=RGBtoGrayscale(src,dest);
+			break;
+		}
+		return nRet;
 	}
 
 	int RevColor(CpkMat&dest,CpkMat&src)
@@ -302,7 +368,7 @@ namespace pk
 		{
 			for(int i=0;i<heighOut;i++)
 			{
-				for(int j=0;j<widthOut;j++)
+				for(int j=0;j<lineByteOut;j++)
 				{
 					coordinateX=(int)(ratioX*j+0.5);
 					coordinateY=(int)(ratioY*i+0.5);
@@ -326,7 +392,7 @@ namespace pk
 				int tH = (int)(ratioY * i);
 				int tH1 = PK_MIN(tH + 1,src.Row - 1);
 				float u = (float)(ratioY * i - tH);
-				for (int j = 0; j < widthOut; j++)
+				for (int j = 0; j < lineByteOut; j++)
 				{
 					int tW = (int)(ratioX * j); 
 					int tW1 = PK_MIN(tW + 1,src.Col - 1);
@@ -344,6 +410,25 @@ namespace pk
 			}
 		}
 		dest=tmp;
+		return PK_SUCCESS;
+	}
+
+	int zoomMidImage(CpkMat& dd,int zoomSize,ZOOM_TYPE type)
+	{
+		CpkMat tmp;
+		float rate=PK_MIN(dd.Row,dd.Col)/(float)zoomSize;
+		if(dd.Row>dd.Col)
+		{
+			pk::zoom(tmp,zoomSize,dd.Row/rate,dd,type);
+			int mid=tmp.Row/2;
+			tmp.GetData(dd,mid-zoomSize/2,mid+zoomSize/2,0,zoomSize);
+		}
+		else
+		{
+			pk::zoom(tmp,dd.Col/rate,zoomSize,dd,type);
+			int mid=tmp.Col/2;
+			tmp.GetData(dd,0,zoomSize,mid-zoomSize/2,mid+zoomSize/2);
+		}
 		return PK_SUCCESS;
 	}
 
@@ -612,6 +697,68 @@ namespace pk
 				}
 			}
 		}
+		dest=tmp;
+		return PK_SUCCESS;
+	}
+
+	int EqualizeHist(CpkMat& dest,CpkMat& src)
+	{
+		if(src.GetType()!=CpkMat::DATA_BYTE)
+			return PK_NOT_ALLOW_OPERATOR;
+		CpkMat tmp(src.Row,src.Col,src.Depth,CpkMat::DATA_BYTE);
+		float levels[256]={0};
+		int   map[256]={0};
+		BYTE* pSrc=src.GetData<BYTE>();
+		for(int i=0;i<src.Row*src.lineSize;i++)
+			++levels[pSrc[i]];
+
+		for(int i=0;i<src.Row*src.lineSize;i++)
+		{
+			if(pSrc[i]<9)
+				i=i;
+		}
+
+		int min=0,max=0;
+		for(int i=0;i<256;i++)
+		{
+			if(levels[i]!=0)
+			{
+				min=i;
+				break;
+			}
+		}
+
+		min=1;
+
+		for(int i=255;i>0;i--)
+		{
+			if(levels[i]!=0)
+			{
+				max=i;
+				break;
+			}
+		}
+		
+		for(int i=0;i<256;i++)
+		{
+			if(i!=0)
+				levels[i]=levels[i]/(src.Row*src.lineSize)+levels[i-1];
+			else
+				levels[i]=levels[i]/(src.Row*src.lineSize);
+			map[i]=levels[i]*255+0.5;
+		}
+
+		if(min==255)
+		{
+			dest=src;
+			return PK_SUCCESS;
+		}
+
+		BYTE* pDest=tmp.GetData<BYTE>();
+		for(int i=0;i<src.Row*src.lineSize;i++)
+//			pDest[i]=(map[pSrc[i]]-min)*max/(max-min);
+//			pDest[i]=(map[pSrc[i]]-min)*255/(255-min);
+			pDest[i]=map[pSrc[i]];
 		dest=tmp;
 		return PK_SUCCESS;
 	}

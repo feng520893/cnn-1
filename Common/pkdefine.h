@@ -1,6 +1,7 @@
 #ifndef PKDEFINE_H
 #define PKDEFINE_H
 #include <cmath>
+#include <assert.h>
 #define NULL 0
 typedef unsigned long DWORD;
 typedef unsigned short WORD;
@@ -40,6 +41,9 @@ typedef long LONG;
 
 //¾í»ýÉñ¾­ÍøÂç
 #define PK_CNN_NOT_INIT        -200
+#define PK_CNN_AUTO_RUN        0
+#define PK_CNN_CPU_RUN         1
+#define PK_CNN_GPU_CUDA_RUN    2
 
 
 struct MinSGD
@@ -58,13 +62,33 @@ namespace pk
 		int end;
 	};
 
-	struct Rect
+	template<typename _Tp> struct _tRect
 	{
-		int x;
-		int y;
-		int width;
-		int height;
+		_tRect():x(0),y(0),height(0),width(0){};
+		_tRect(_Tp x,_Tp y,_Tp width,_Tp height):x(x),y(y),height(height),width(width){};
+		_tRect(const _tRect& r)
+		{
+			*this=r;
+		}
+
+		_tRect& operator = ( const _tRect& r )
+		{
+			x=r.x;
+			y=r.y;
+			width=r.width;
+			height=r.height;
+			return *this;
+		}
+		_Tp x,y,width,height;
 	};
+	typedef _tRect<int> Rect;
+
+	template<typename _Tp> struct _tPoint
+	{
+		_tPoint(int x=0,int y=0):x(0),y(0){};
+		_Tp x,y;
+	};
+	typedef _tPoint<int> Point;
 };
 
 #endif

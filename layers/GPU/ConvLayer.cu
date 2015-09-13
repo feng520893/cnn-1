@@ -94,123 +94,61 @@ __global__ void feedForwardConvolution(
 	}
 }
 
-//block<<<batch,m_curNumFeature>>>
+//block<<<m_curNumFeature,m_inputNumFeature>>>
 //threads<<<min(1024,poolDim*poolDim)>>>
-__global__ void maxPool(
-						double* convData,
-						int convDim,
-						int numFeature,
-						double* poolData,
-						int* maxIndexData,
-						int poolArea
+__global__ void normal(
+						double* normalData,
+						double* tmpPoolData,
+						int poolDim
 						)
 {
-	int srcNo=blockIdx.x;
-	int featureNo=blockIdx.y;
-	int conv2=convDim*convDim;
-	int poolDim=convDim/poolArea;
+	int featureNo=blockIdx.x;
+	int channelNo=blockIdx.y;
+	int kernelSize=gridDim.x;
+	int channelSize=gridDim.y;
 	int poolDim2=poolDim*poolDim;
-	double* pConv=convData+(srcNo*numFeature+featureNo)*conv2;
-	double* pPoolData=poolData+(srcNo*numFeature+featureNo)*poolDim2;
-	int*    pIndex=maxIndexData+(srcNo*numFeature+featureNo)*poolDim2;
+	double* pNormal=normalData+(featureNo*channelSize+channelNo)*poolDim2;
 
 	for(int idx=threadIdx.x;idx<poolDim2;idx+=blockDim.x)
 	{
-		int convX=(idx%poolDim)*poolArea;
-		int convY=(idx/poolDim)*poolArea;
-
-		double maxNum=0.0;
-		double dTmp=0.0;
-		int index=0;
-
-		for(int poolRow =0;poolRow<poolArea;poolRow++)
+		double sum=0.0;
+		for(int j=max(0,(featureNo-5)/2);j<min(kernelSize,(featureNo+5)/2);j++)
 		{
-			for(int poolCol = 0;poolCol<poolArea;poolCol++)
-			{
-				dTmp=pConv[(convY+poolRow)*convDim+convX+poolCol];
-				if(maxNum<dTmp)
-				{
-					maxNum=dTmp;
-					index=poolRow*poolArea+poolCol;
-				}
-			}
+			double* pTmpData= tmpPoolData+(j*channelSize+channelNo)*poolDim2;
+			sum+=pTmpData[idx]*pTmpData[idx];
 		}
-		pIndex[threadIdx.y*poolDim+threadIdx.x]=index;
-		pPoolData[threadIdx.y*poolDim+threadIdx.x]=maxNum;
+		sum=3+sum*1e-3;
+		sum=pow(sum,3);
+		sum=sqrt(sqrt(sum));
+		pNormal[idx]/=sum;
 	}
 }
 
-
-void CConvLayer::feedforward(double* srcData,int activeType)
+void CConvLayerGPU::feedforward(double* srcData,DLparam& params)
 {
+	int activeType=params.activeType;
 	dim3 blocks(batch,m_curNumFeature);
 	dim3 threads(min(1024,m_convDim*m_convDim));
 	feedForwardConvolution<<<blocks,threads>>>
 							(srcData,
-							 m_convDim+m_maskDim-1,
+							 m_convDim+m_kernelDim-1,
 							 m_inputNumFeature,
 							 m_weight,
-							 m_maskDim,
+							 m_kernelDim,
 							 m_curNumFeature,
 							 m_convData,
 							 m_convNoActiveData,
 							 m_bias,
 							 activeType);
-
-	cudaDeviceSynchronize();
-	 
-	int poolDim=m_convDim/m_poolArea;
-	threads=min(1024,poolDim*poolDim);
-	maxPool<<<blocks,threads>>>
-							(m_convData,
-							 m_convDim,
-							 m_curNumFeature,
-							 m_poolData,
-							 m_maxIndexData,
-							 m_poolArea);
-	cudaDeviceSynchronize();
+	cudaError_t cudaStat=cudaDeviceSynchronize();
+	CUDA_ERROR(cudaStat);
 }
 
-double CConvLayer::getCost()
+double CConvLayerGPU::getCost(DLparam& params)
 {
-	int dataSize=m_curNumFeature*m_inputNumFeature*m_maskDim*m_maskDim;
+	int dataSize=m_curNumFeature*m_inputNumFeature*m_kernelDim*m_kernelDim;
 	double finSum=getWeightCost(m_weight,dataSize);
 	return finSum*m_lambda/2;
-}
-
-
-//block<<<batch,m_curNumFeature>>>
-//threads<<<min(1024,poolDim*poolDim)>>>
-__global__ void backDeltaFromMaxPoolToConv(
-						double* convDelta,
-						int convDim,
-						int numFeature,
-						double* poolDelta,
-						int* maxIndexData,
-						int poolArea
-						)
-{
-	int srcNo=blockIdx.x;
-	int featureNo=blockIdx.y;
-	int conv2=convDim*convDim;
-	int poolDim=convDim/poolArea;
-	int poolDim2=poolDim*poolDim;
-	double* pConvDelta=convDelta+(srcNo*numFeature+featureNo)*conv2;
-	double* pPoolData=poolDelta+(srcNo*numFeature+featureNo)*poolDim2;
-	int*    pIndex=maxIndexData+(srcNo*numFeature+featureNo)*poolDim2;
-
-	for(int idx=threadIdx.x;idx<poolDim2;idx+=blockDim.x)
-	{
-		int convX=(idx%poolDim)*poolArea;
-		int convY=(idx/poolDim)*poolArea;
-		double dTmp=0.0;
-
-		dTmp=pPoolData[idx];
-		int index=pIndex[idx];
-		int row=index/poolArea;
-		int col=index%poolArea;
-		pConvDelta[(convY+row)*convDim+convX+col]=dTmp;
-	}
 }
 
 //blocks<<<batch,inputNumFeature>>>
@@ -267,55 +205,35 @@ __global__ void backDeltaFromConvToPool(
 }
 
 
-int CConvLayer::backpropagation(double*preDelta,int activeType)
+void CConvLayerGPU::backpropagation(double*preDelta,DLparam& params)
 {
-	cudaError_t cudaStat;
-
-	cudaStat=cudaMemset(m_delta,0,sizeof(double)*m_convDim*m_convDim*batch*m_curNumFeature);
-
-	if(cudaStat != cudaSuccess) 
-	{ 
-		printf ("device memory cudaMemset failed\n"); 
-		exit(0); 
-	}
-
+	int activeType=params.activeType;
 	dim3 blocks(batch,m_curNumFeature);
-	int poolDim=m_convDim/m_poolArea;
-	dim3 threads(min(1024,poolDim*poolDim));
-
-	backDeltaFromMaxPoolToConv<<<blocks,threads>>>(m_delta,
-												   m_convDim,
-												   m_curNumFeature,
-												   m_poolDelta,
-												   m_maxIndexData,
-												   m_poolArea
-												   );
-	cudaDeviceSynchronize();
-
-	threads=min(1024,m_convDim*m_convDim);
+	dim3 threads(min(1024,m_convDim*m_convDim));
 	g_dConvActive<<<blocks,threads>>>(m_delta,
 									  m_convNoActiveData,
 									  m_convDim,
 									  activeType
 									  );
-	cudaDeviceSynchronize();
+	cudaError_t cudaStat=cudaDeviceSynchronize();
+	CUDA_ERROR(cudaStat);
 
 	if(preDelta!=NULL)
 	{
 		dim3 blocks(batch,m_inputNumFeature);
-		int prePoolDim=m_convDim+m_maskDim-1;
+		int prePoolDim=m_convDim+m_kernelDim-1;
 		threads=min(1024,prePoolDim*prePoolDim);
 
 		backDeltaFromConvToPool<<<blocks,threads>>>(m_delta,
 													m_convDim,
 													m_curNumFeature,
 													m_weight,
-											        m_maskDim,
+											        m_kernelDim,
 											        preDelta,
 											        m_inputNumFeature);
-		 cudaDeviceSynchronize();
+		 cudaStat=cudaDeviceSynchronize();
+		 CUDA_ERROR(cudaStat);
 	}
-	return 0;
 }
 
 //blocks<<<batch,m_curNumFeature>>>
@@ -429,27 +347,25 @@ __global__ void gradWeightAdd(
 	weightGrad[index]=tmp/batch+weight[index]*lambda;
 }
 
-
-//block3<<<curNumFeature>>>
-//threads<<deltaDim*deltaDim>>>
-//share<<deltaDim*deltaDim*sizeof(double>>>
-__global__ void gradBias(
-						 double* biasGrad,
-						 double* delta,
-						 int deltaDim,
-						 int curNumFeature,
-						 int batch
-						 )
+//blocks<<<curNumFeature,batch>>>
+//threads<<min(threadNum,deltaDim*deltaDim)>>>
+//share<<threads*sizeof(double>>>
+__global__ void addDeltaSum(double* delta,
+							double* deltaSum,
+							int deltaDim)
 {
 	extern __shared__ double _sum[];
-	_sum[threadIdx.x] = 0.0; 
- 	int deltaDim2 = deltaDim * deltaDim;  
- 	for(int i = 0; i < batch;i++) 
-	{ 
-		int index=i*curNumFeature*deltaDim2+blockIdx.x*deltaDim2+threadIdx.x;
-		_sum[threadIdx.x] += delta[index]; 
- 	} 
-	__syncthreads(); 
+	int featureNo=blockIdx.x;
+	int imgNo=blockIdx.y;
+	int tid=threadIdx.x;
+	int deltaDim2=deltaDim*deltaDim;
+
+	double* pDelta=delta+imgNo*gridDim.x*deltaDim2+featureNo*deltaDim2;
+	_sum[tid] = 0.0; 
+	for(int i=tid;i<deltaDim2;i+=blockDim.x)
+	{
+		_sum[tid]+=pDelta[i];
+	}
 
 	int len = blockDim.x; 
 	 while(len != 1) 
@@ -465,15 +381,31 @@ __global__ void gradBias(
 	 __syncthreads();
 
 	if(threadIdx.x == 0) 
-		biasGrad[blockIdx.x]=_sum[0]/batch;
+		deltaSum[imgNo*gridDim.x+featureNo]=_sum[0];
+}
+
+//block3<<<1>>>
+//threads<<curNumFeature>>>
+__global__ void gradBias(
+						 double* biasGrad,
+						 double* deltaSum,
+						 int batch
+						 )
+{
+	int featureNo=threadIdx.x;
+	double sum=0.0;
+	for(int i=0;i<batch;i++)
+		sum+=deltaSum[i*blockDim.x+featureNo];
+	biasGrad[featureNo]=sum/batch;
 }
 
 
-void CConvLayer::getGrad(double* srcData)
+void CConvLayerGPU::getGrad(double* srcData)
 {
+	cudaError_t cudaStat=cudaSuccess;
 	dim3 blocks(batch,m_curNumFeature,m_inputNumFeature);
-	dim3 threads(m_maskDim,m_maskDim);
-	int srcDim=m_convDim+m_maskDim-1;
+	dim3 threads(m_kernelDim,m_kernelDim);
+	int srcDim=m_convDim+m_kernelDim-1;
 
 	gradWeight2<<<blocks,threads>>>(srcData,
 								   srcDim,
@@ -483,33 +415,37 @@ void CConvLayer::getGrad(double* srcData)
 							       m_curNumFeature,
 							       m_weightTmp
 								   );
-	cudaDeviceSynchronize();
+	cudaStat=cudaDeviceSynchronize();
+	CUDA_ERROR(cudaStat);
 
 	dim3 blocks2(m_curNumFeature,m_inputNumFeature);
-	dim3 threads2(m_maskDim,m_maskDim);
+	dim3 threads2(m_kernelDim,m_kernelDim);
 
 	gradWeightAdd<<<blocks2,threads2>>>(
 								m_weightGrad,
 							    m_weightTmp,
 							    m_weight,
-								m_maskDim,
+								m_kernelDim,
 							    m_lambda,
 							    batch);
+	cudaStat=cudaDeviceSynchronize();
+	CUDA_ERROR(cudaStat);
 
-	cudaDeviceSynchronize();
+	dim3 block3(m_curNumFeature,batch);
+	int threadNum=min(256,m_convDim*m_convDim);
 
-	gradBias<<<m_curNumFeature,m_convDim*m_convDim,sizeof(double)*m_convDim*m_convDim>>>(m_biasGrad,
-																			m_delta,
-																			m_convDim,
-																			m_curNumFeature,
-																			batch
-																			);
-	cudaDeviceSynchronize();
+	addDeltaSum<<<block3,threadNum,sizeof(double)*threadNum>>>(m_delta,m_deltaSum,m_convDim);
+	cudaStat=cudaDeviceSynchronize();
+	CUDA_ERROR(cudaStat);
+
+	gradBias<<<1,m_curNumFeature>>>(m_biasGrad,m_deltaSum,batch);
+	cudaStat=cudaDeviceSynchronize();
+	CUDA_ERROR(cudaStat);
 }
 
-void CConvLayer::updateWeight(float mom,float alpha)
+void CConvLayerGPU::updateWeight(float mom,float alpha)
 {
-	int threadNum=min(1024,m_inputNumFeature*m_maskDim*m_maskDim);
+	int threadNum=min(1024,m_inputNumFeature*m_kernelDim*m_kernelDim);
 	g_weightAndBiasAdd<<<m_curNumFeature,threadNum>>>(
 												m_weight,
 												m_weightGrad,
@@ -517,90 +453,49 @@ void CConvLayer::updateWeight(float mom,float alpha)
 												m_bias,
 												m_biasGrad,
 												m_vecBias,
-												m_maskDim*m_maskDim*m_inputNumFeature,
+												m_kernelDim*m_kernelDim*m_inputNumFeature,
 												mom,
 												alpha);
-	cudaDeviceSynchronize();
-
+	cudaError_t cudaStat=cudaDeviceSynchronize();
+	CUDA_ERROR(cudaStat);
 }
 
-int CConvLayer::initMem()
+int CConvLayerGPU::initMem()
 {
-	m_weightLen=m_maskDim*m_maskDim*m_inputNumFeature*m_curNumFeature;
+	m_weightLen=m_kernelDim*m_kernelDim*m_inputNumFeature*m_curNumFeature;
+	DL_ASSER(m_weightLen!=0);
 
 	cudaError_t cudaStat;
 
-	unsigned const int weightSize=sizeof(double)*m_maskDim*m_maskDim*m_inputNumFeature*m_curNumFeature;
+	unsigned const int weightSize=sizeof(double)*m_kernelDim*m_kernelDim*m_inputNumFeature*m_curNumFeature;
 
 	cudaStat=cudaMalloc((void**)&m_weightTmp,weightSize*batch);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n");  
-		freeMem();
-		return -1;
-	}
+	CUDA_ERROR(cudaStat);
 
 	unsigned const int convDataSize=sizeof(double)*m_convDim*m_convDim*batch*m_curNumFeature;
 
 	cudaStat=cudaMalloc((void**)&m_delta,convDataSize);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n");  
-		freeMem();
-		return -1;
-	}
+	CUDA_ERROR(cudaStat);
+
+	cudaStat=cudaMalloc((void**)&m_deltaSum,sizeof(double)*batch*m_curNumFeature);
+	CUDA_ERROR(cudaStat);
 
 	cudaStat=cudaMalloc((void**)&m_convData,convDataSize);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n");  
-		freeMem();
-		return -1;
-	}
+	CUDA_ERROR(cudaStat);
 
 	cudaStat=cudaMalloc((void**)&m_convNoActiveData,convDataSize);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n");  
-		freeMem();
-		return -1;
-	}
+	CUDA_ERROR(cudaStat);
 
-	cudaStat=cudaMalloc((void**)&m_poolDelta,convDataSize/m_poolArea/m_poolArea);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n");  
-		freeMem();
-		return -1;
-	}
-
-	cudaStat=cudaMalloc((void**)&m_poolData,convDataSize/m_poolArea/m_poolArea);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n");  
-		freeMem();
-		return -1;
-	}
-
-	cudaStat=cudaMalloc((void**)&m_maxIndexData,sizeof(int)*m_convDim*m_convDim*batch*m_curNumFeature/m_poolArea/m_poolArea);
-	if(cudaStat!=cudaSuccess)
-	{
-		printf ("device memory cudaMalloc failed\n");  
-		freeMem();
-		return -1;
-	}
-	return CLayer::initMem();
+	return CLayerGPU::initMem();
 }
 
-void CConvLayer::freeMem()
+void CConvLayerGPU::freeMem()
 {
 	GPU_FREE(m_delta);
-	GPU_FREE(m_poolData);
 	GPU_FREE(m_convData);
 	GPU_FREE(m_convNoActiveData);
-	GPU_FREE(m_poolDelta);
 	GPU_FREE(m_weightTmp);
-	GPU_FREE(m_maxIndexData);
+	GPU_FREE(m_deltaSum);
 
-	CLayer::freeMem();
+	CLayerGPU::freeMem();
 }

@@ -1,13 +1,9 @@
 #pragma once
-#include"..\layers\\ConvLayer.cuh"
-#include"..\layers\\FullLayer.cuh"
-#include"..\layers\\SoftMaxLayer.cuh"
 
 #include"..\common\\cpkMat.h"
+#include"..\\layers\\LayerBase.h"
 
-#include"../CNNConfig/CNNConfig.h"
-
-#include<Windows.h>
+#include<vector>
 
 typedef	CpkMat Data;
 
@@ -16,11 +12,10 @@ class CCNN
 public:
 	CCNN(void);
 	virtual ~CCNN(void);
-	void setParam(MinSGD& sgd,float dropRate,int activeType);
+	void setParam(MinSGD& sgd,int activeType,int rumMode);
 	const MinSGD& getMinSGDInfo();
-	int init(std::vector<CConvLayer>& convLayers,std::vector<CFullLayer>&fullLayers,CSoftMaxLayer& sfm,int dataDim,short dataChannel,int batch);
-	int init(const char*path);
-	int cnnTrain(Data&datas,std::vector<int>& labels);
+	int init(std::vector<CLayer*>& cnnLayers);
+	int cnnTrain(Data&datas,std::vector<int>& labels,const char* savePath=NULL,int maxSaveCount=0);
 	int cnnRun(std::vector<double>&pred,Data&datas);
 	double computeNumericalGradient(Data&datas,std::vector<int>& labels);
 
@@ -29,11 +24,9 @@ public:
 	
 private:
 	MinSGD m_sgd;
-	int    m_activeType;
-	float  m_dropRate;
-	std::vector<CConvLayer> m_convLayers;
-	std::vector<CFullLayer> m_fullLayers;
-	CSoftMaxLayer m_sfm;
+	int    m_activeType,m_runMode;
+
+	std::vector<CLayer*> m_cnn;   //单向组合网络
 	int feedforward(std::vector<double>&predMat,double*data,bool bPred);
 	double getCost(std::vector<int>& labels);
 	int backpropagation(std::vector<int>& labels);

@@ -1,43 +1,62 @@
 #include"common.h"
 #include<stdlib.h>
-#include<time.h>
-int randn(double* data,int dataSize,float rate)
+#include<io.h>
+namespace pk
 {
-	srand(time(NULL));
-	for(int i=0;i<dataSize;i++)
+	void transpose(double** data,int& row,int& col)
 	{
-		double V1, V2, S;
-		int phase = 0;
-		double X;
-		if ( phase == 0 ) 
-		{
-			do {
-				double U1 = (double)::rand() / RAND_MAX;
-				double U2 = (double)::rand() / RAND_MAX;
-				V1 = 2 * U1 - 1;
-				V2 = 2 * U2 - 1;
-				S = V1 * V1 + V2 * V2;
-			} while(S >= 1 || S == 0);
-			X = V1 * sqrt(-2 * ::log(S) / S);
-		} else
-			X = V2 * sqrt(-2 * ::log(S) / S);
-		phase = 1 - phase;
-		data[i]=X*rate;
-	}
-	return 0;
-}
+		double* pTmp=*data;
+		*data=new double[row*col];
+		for (int i = 0; i <row; i++)   
+		{   
+			for (int j = 0; j <col; j++)   
+				(*data)[j*row+i]=pTmp[i*col+j];   
+		}
+		int tmp=col;
+		col=row;
+		row=tmp;
+		delete [] pTmp;
+	}  
 
-void transpose(double** data,int& row,int& col)
-{
-	double* pTmp=*data;
-	*data=new double[row*col];
-	for (int i = 0; i <row; i++)   
-	{   
-		for (int j = 0; j <col; j++)   
-			(*data)[j*row+i]=pTmp[i*col+j];   
+	double* matrixMul(double* left,int leftRow,int leftCol,double* right,int rightRow,int rightCol)
+	{
+		double* pX1=left;
+		double* pX2=right;
+		double* pDest=new double[leftRow*rightCol];
+		memset(pDest,0,sizeof(double)*leftRow*rightCol);
+		for (int i = 0; i <leftRow; i++)   
+		{   
+			for(int k=0;k<rightCol;k++)
+			{
+				for (int j = 0; j <leftCol; j++)   
+				{   
+					pDest[i*rightCol+k]+= pX2[j*rightCol+k] * pX1[i*leftCol+j];   
+				}   
+			}
+		}   
+		return pDest;
 	}
-	int tmp=col;
-	col=row;
-	row=tmp;
-	delete [] pTmp;
-}   
+
+	int findDirectsOrFiles(std::string direct,std::vector<std::string>& files,bool bOnlyFindDirect)
+	{
+		std::string path=direct+std::string("\\*.*");
+		long handle;  
+
+		struct _finddata_t fileinfo;
+		handle=_findfirst(path.c_str(),&fileinfo);  
+		if(-1==handle)
+			return PK_NOT_FILE;   
+		while(!_findnext(handle,&fileinfo))  
+		{  
+			if(strcmp(fileinfo.name,".")==0||strcmp(fileinfo.name,"..")==0)
+				continue;                                                         
+			if(bOnlyFindDirect&&fileinfo.attrib!=_A_SUBDIR)  
+				continue;   
+			std::string destFile=direct+std::string("\\")+std::string(fileinfo.name);  
+			files.push_back(destFile);
+		}  
+		_findclose(handle);  
+		return PK_SUCCESS;
+	}
+	
+}

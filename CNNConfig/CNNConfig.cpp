@@ -1,10 +1,23 @@
 #include "CNNConfig.h"
 
+#include"../layers/GPU/ConvLayer.cuh"
+#include"../layers/GPU/PoolLayer.cuh"
+#include"../layers/GPU/FullLayer.cuh"
+#include"../layers/GPU/SoftMaxLayer.cuh"
+
+#include"../layers/CPU/ConvLayerCPU.h"
+#include"../layers/CPU/PoolLayerCPU.h"
+#include"../layers/CPU/FullLayerCPU.h"
+#include"../layers/CPU/SoftMaxLayerCPU.h"
+
 CCNNConfig::CCNNConfig(void)
 {
-	gradCheck=false;
 	inputChannel=1;
-	inputDim=28;
+	imgDim=inputDim=28;
+	bFirstFullLayer=true;
+	runMode=PK_CNN_CPU_RUN;
+	activeFunType=NL_RELU;
+	maxSaveCount=40;
 }
 
 CCNNConfig::~CCNNConfig(void)
@@ -65,18 +78,40 @@ int CCNNConfig::loadGlobalMess(std::ifstream& in)
 		int index=mess.find("=");
 		if(index!=std::string::npos)
 		{
-			if(mess.find("GRAD_CHECK")!=std::string::npos)
-				gradCheck=readBool(mess);
-			else if(mess.find("IMAGE_CHNANEL")!=std::string::npos)
+			if(mess.find("IMAGE_CHNANEL")!=std::string::npos)
 				inputChannel=readInt(mess);
 			else if(mess.find("IMAGE_DIM")!=std::string::npos)
-				inputDim=readInt(mess);
+				imgDim=inputDim=readInt(mess);
+			else if(mess.find("RUN_MODE")!=std::string::npos)
+			{
+				runMode=readInt(mess);
+				if(runMode==PK_CNN_AUTO_RUN||runMode>PK_CNN_GPU_CUDA_RUN)
+					runMode=autoRun();
+			}
+			else if(mess.find("ACTIVEFUN_TYPE")!=std::string::npos)
+			{
+				activeFunType=readInt(mess);
+				if(activeFunType>NL_RELU)
+				{
+					printf("错误的激活函数设置:%s 强制使用Relu激活函数",mess.c_str());
+					activeFunType=NL_RELU;
+				}
+			}
+			else if(mess.find("DATASET_PATH")!=std::string::npos)
+			{
+				dataSetsPath=readString(mess);
+			}
+			else if(mess.find("MAX_SAVE_COUNT")!=std::string::npos)
+			{
+				maxSaveCount=readInt(mess);
+			}
 			else
 			{
 				printf("无法解析的数据:%s",mess.c_str());
 			}
 		}
 	}while(mess.find("}")==std::string::npos&&!in.eof());
+
 	return PK_SUCCESS;
 }
 
@@ -109,50 +144,22 @@ int CCNNConfig::loadMinSGDMess(std::ifstream& in)
 int CCNNConfig::loadCnnMess(std::ifstream& in)
 {
 	std::string mess;
-	int type=0;
-	CLayer* baseLayer=NULL;
 	do
 	{
 		getLine(in,mess);
 		int index=mess.find("[");
 		if(index!=std::string::npos)
-			type=analyticalCNN(&baseLayer,in);
-		if(type==1)
-		{
-			CConvLayer* pTmp=(CConvLayer*)baseLayer;
-			convs.push_back(*pTmp);
-			delete baseLayer;
-			baseLayer=NULL;
-			type=0;
-		}
-		else if(type==2)
-		{
-			CFullLayer* pTmp=(CFullLayer*)baseLayer;
-			fulls.push_back(*pTmp);
-			delete baseLayer;
-			baseLayer=NULL;
-			type=0;
-		}
-		else if(type==3)
-		{
-			CSoftMaxLayer* pTmp=(CSoftMaxLayer*)baseLayer;
-			sfm=*pTmp;
-			delete baseLayer;
-			baseLayer=NULL;
-			type=0;
-		}
-		else
-		{
-		}
+			analyticalCNN(in);
 	}while(mess.find("}")==std::string::npos&&!in.eof());
-	
+
 	return PK_SUCCESS;
 }
 
-int CCNNConfig::analyticalCNN(CLayer** ppBase,std::ifstream& in)
+int CCNNConfig::analyticalCNN(std::ifstream& in)
 {
 	std::string mess;
 	int type=0;
+	CLayer* pBase=NULL;
 	do
 	{
 		getLine(in,mess);
@@ -161,17 +168,34 @@ int CCNNConfig::analyticalCNN(CLayer** ppBase,std::ifstream& in)
 			if(mess.find("CONV")!=std::string::npos)
 			{
 				type=1;
-				*ppBase=new CConvLayer();
+				if(runMode==PK_CNN_CPU_RUN)
+					pBase=new CConvLayerCPU();
+				else
+					pBase=new CConvLayerGPU();
 			}
 			else if(mess.find("FULL")!=std::string::npos)
 			{
 				type=2;
-				*ppBase=new CFullLayer();
+				if(runMode==PK_CNN_CPU_RUN)
+					pBase=new CFullLayerCPU();
+				else
+					pBase=new CFullLayerGPU();
 			}
 			else if(mess.find("SOFTMAX")!=std::string::npos)
 			{
 				type=3;
-				*ppBase=new CSoftMaxLayer();
+				if(runMode==PK_CNN_CPU_RUN)
+					pBase=new CSoftmaxLayerCPU();
+				else
+					pBase=new CSoftMaxLayerGPU();
+			}
+			else if(mess.find("POOL")!=std::string::npos)
+			{
+				type=4;
+				if(runMode==PK_CNN_CPU_RUN)
+					pBase=new CPoolLayerCPU();
+				else
+					pBase=new CPoolLayerGPU();
 			}
 			else
 			{
@@ -180,16 +204,56 @@ int CCNNConfig::analyticalCNN(CLayer** ppBase,std::ifstream& in)
 		}
 
 		else if(mess.find("NUM_FEATURE")!=std::string::npos)
-			(*ppBase)->m_curNumFeature=readInt(mess);
+		{
+			pBase->m_curNumFeature=readInt(mess);
+			if(pBase->m_curNumFeature==0)
+			{
+				if(type==3)
+				{
+					std::vector<std::string> directs;
+					pk::findDirectsOrFiles(dataSetsPath.c_str(),directs,true);
+					DL_ASSER(!directs.empty());
+					pBase->m_curNumFeature=directs.size();
+				}
+				else
+					printf("错误的设置:%s",mess.c_str());
+			}
+		}
 		else if(mess.find("WEIGHT_DECAY")!=std::string::npos)
-			(*ppBase)->m_lambda=readDouble(mess);
+			pBase->m_lambda=readDouble(mess);
+
+		else if(mess.find("INPUT_NAME")!=std::string::npos)
+			pBase->m_inputName=readString(mess);
+		else if(mess.find("NAME")!=std::string::npos)
+			pBase->m_name=readString(mess);
 
 		else if(mess.find("KERNEL_SIZE")!=std::string::npos)
 		{
 			if(type==1)
 			{
-				CConvLayer* pTmp=(CConvLayer*)(*ppBase);
-				pTmp->m_maskDim=readInt(mess);
+				CConvLayerBase* pTmp=dynamic_cast<CConvLayerBase*>(pBase);
+				pTmp->m_kernelDim=readInt(mess);
+			}
+			else if(type==4)
+			{
+				CPoolLayerBase* pTmp=dynamic_cast<CPoolLayerBase*>(pBase);
+				pTmp->m_kernelDim=readInt(mess);
+			}
+			else
+			{
+				printf("错误的设置:%s",mess.c_str());
+			}
+		}
+		else if(mess.find("POOL_TYPE")!=std::string::npos)
+		{
+			if(type==4)
+			{
+				CPoolLayerBase* pTmp=dynamic_cast<CPoolLayerBase*>(pBase);
+				std::string typeStr=readString(mess);
+				if(typeStr.find("MAX")!=std::string::npos)
+					pTmp->m_poolType=MAX_POOL;
+				else
+					pTmp->m_poolType=AVG_POOL;
 			}
 			else
 			{
@@ -200,8 +264,8 @@ int CCNNConfig::analyticalCNN(CLayer** ppBase,std::ifstream& in)
 		{
 			if(type==2)
 			{
-				CFullLayer* pTmp=(CFullLayer*)(*ppBase);
-				pTmp->m_rate=readDouble(mess);
+				CFullLayerBase* pTmp=dynamic_cast<CFullLayerBase*>(pBase);
+				pTmp->m_dropRate=readDouble(mess);
 			}
 			else
 			{
@@ -213,6 +277,56 @@ int CCNNConfig::analyticalCNN(CLayer** ppBase,std::ifstream& in)
 			///未定义数据不处理
 		}
 	}while(mess.find("]")==std::string::npos&&!in.eof());
+
+	if(type==1)
+	{
+		CLayer* pTmp=dynamic_cast<CLayer*>(pBase);
+		if(cnnLayers.empty())
+			pTmp->m_inputNumFeature=inputChannel;
+		else
+			pTmp->m_inputNumFeature=cnnLayers[cnnLayers.size()-1]->m_curNumFeature;
+		pTmp->batch=sgd.minibatch;
+
+		CConvLayerBase* pTmp2=dynamic_cast<CConvLayerBase*>(pBase);
+		inputDim=inputDim-pTmp2->m_kernelDim+1;
+		pTmp2->m_convDim=inputDim;
+	}
+	else if(type==4)
+	{
+		CLayer* pTmp=dynamic_cast<CLayer*>(pBase);
+		CPoolLayerBase* pTmp2=dynamic_cast<CPoolLayerBase*>(pBase);
+		for(int j=0;j<cnnLayers.size();j++)
+		{
+			if(pTmp->m_inputName==cnnLayers[j]->m_name)
+			{
+				CConvLayerBase* pTmpC=dynamic_cast<CConvLayerBase*>(cnnLayers[j]);
+				CLayer* pTmpC2=dynamic_cast<CLayer*>(cnnLayers[j]);
+				pTmp->batch=sgd.minibatch;
+				pTmp2->m_preConvDim=pTmpC->m_convDim;
+				pTmp->m_curNumFeature=pTmpC2->m_curNumFeature;
+				assert(dataDim%poolLayers[j].m_poolArea==0);
+				inputDim/=pTmp2->m_kernelDim;
+				break;
+			}
+		}
+	}
+	else if(type==2||type==3)
+	{
+		CLayer* pTmp=dynamic_cast<CLayer*>(pBase);
+		if(bFirstFullLayer)
+		{
+			pTmp->m_inputNumFeature=inputDim*inputDim*cnnLayers[cnnLayers.size()-1]->m_curNumFeature;
+			bFirstFullLayer=false;
+		}
+		else
+			pTmp->m_inputNumFeature=cnnLayers[cnnLayers.size()-1]->m_curNumFeature;
+		pTmp->batch=sgd.minibatch;
+	}
+	else
+	{
+	}
+	pBase->initMem();
+	cnnLayers.push_back(pBase);
 	return type;
 }
 
@@ -279,4 +393,39 @@ std::string& CCNNConfig::getLine(std::ifstream& in,std::string& mess)
 		getline(in,mess);
 	}while(mess.empty()&&!in.eof());
 	return mess;
+}
+
+bool CCNNConfig::isCUDA()
+{
+    int count;
+    cudaGetDeviceCount(&count);
+    if(count == 0) 
+	{
+        fprintf(stderr, "找不到N卡\n");
+        return false;
+    }
+    int i;
+    for(i = 0; i < count; i++) 
+	{
+        cudaDeviceProp prop;
+        if(cudaGetDeviceProperties(&prop, i) == cudaSuccess) 
+		{
+            if(prop.major >= 1) 
+                break;
+        }
+    }
+    if(i == count) 
+	{
+        fprintf(stderr, "当前驱动程序不支持CUDA\n");
+        return false;
+    }
+    cudaSetDevice(i);
+    return true;
+}
+
+int CCNNConfig::autoRun()
+{
+	if(isCUDA())
+		return PK_CNN_GPU_CUDA_RUN;
+	return PK_CNN_CPU_RUN;
 }

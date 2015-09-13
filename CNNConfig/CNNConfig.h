@@ -3,9 +3,8 @@
 #include <string>
 #include<sstream>
 #include "../common/pkDefine.h"
-#include"../layers/ConvLayer.cuh"
-#include"../layers/FullLayer.cuh"
-#include"../layers/SoftMaxLayer.cuh"
+#include"../layers/GPU/LayerBaseGPU.cuh"
+
 class CCNNConfig
 {
 public:
@@ -15,6 +14,8 @@ public:
 	int saveConfig(const char* path=NULL);
 	int  writeString(const char* key,std::string mess);
 private:
+	bool isCUDA();
+	int autoRun();
 	int loadGlobalMess(std::ifstream& in);
 	int loadMinSGDMess(std::ifstream& in);
 	int loadCnnMess(std::ifstream& in);
@@ -26,18 +27,22 @@ private:
 
 	std::string& trim(std::string &s);
 
-	int analyticalCNN(CLayer** ppBase,std::ifstream& in);
+	int analyticalCNN(std::ifstream& in);
 
 	std::string& getLine(std::ifstream& in,std::string& mess);
 
 	std::string        filePath;
 	std::string        fileText;
+
+	bool               bFirstFullLayer;
+    int                inputChannel;
+	int                inputDim;
 public:
 	MinSGD sgd;
-	std::vector<CConvLayer> convs;
-	std::vector<CFullLayer> fulls;
-	CSoftMaxLayer           sfm;
-	bool                    gradCheck;
-	int                     inputChannel;
-	int                     inputDim;
+	std::vector<CLayer*>    cnnLayers;
+	int                     runMode;
+	int                     activeFunType;
+	std::string             dataSetsPath;
+	int                     imgDim;
+	int                     maxSaveCount;
 };

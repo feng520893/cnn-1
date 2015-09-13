@@ -19,7 +19,7 @@ public:
 	int ColumnVector(CpkMat& dest);
 
 	//转为行向量
-	int RowVector();
+	CpkMat& RowVector();
 	int RowVector(CpkMat& dest);
 
 	//矩阵转置
@@ -35,10 +35,29 @@ public:
 	//把矩阵置为全0矩阵
 	void zeros();
 
+	bool Empty()
+	{
+		return m_dataType==DATA_NULL?true:false;
+	}
+
 	DATA_TYPE GetType()
 	{
 		return m_dataType;
 	};
+
+	template<typename T>
+	T& at(int rowIndex,int colIndex)
+	{
+		switch(m_dataType)
+		{
+		case DATA_INT:
+			return (T&)*(DataUnion.m_pInt+rowIndex*lineSize+colIndex*Depth);
+		case DATA_DOUBLE:
+			return (T&)*(DataUnion.m_pDouble+rowIndex*lineSize+colIndex*Depth);
+		}
+		return (T&)*(DataUnion.m_pByte+rowIndex*lineSize+colIndex*Depth);
+	}
+
 	template<typename T>
 	T* GetData(int nRow=0)
 	{
@@ -53,7 +72,6 @@ public:
 		}
 		return NULL;
 	}
-
 	int GetData(CpkMat& dest,int rowS,int rowE,int colS,int colE);
 
 	int copyTo(CpkMat& newMat,DATA_TYPE newType);

@@ -434,16 +434,18 @@ int main()
 			{
 				predImgs.GetData(tmpImg,k,k+testBatch,0,predImgs.lineSize*predImgs.Depth);
 				g_cnn.cnnRun(pred,tmpImg);
-				printf("第%d个文件夹预测进度:%.2lf\b\b\b\b\b\b\b\b\b\b\b\b\b\b",i,100.0*(k+testBatch)/files.size());
+				printf("第%d个文件夹预测进度:%.2lf\b\b\b\b\b\b\b\b\b\b\b\b\b\b",i+1,100.0*(k+testBatch)/files.size());
 			}
+
+			printf("\n");
 
 			int first=directs[i].rfind('\\')+1;
 			std::string directName=directs[i].substr(first);
 
 			std::string savePath=std::string(exePath)+std::string("preds\\")+directName;
 			ofstream out(savePath+std::string(".txt"));
-			for(int i=0;i<pred.size();i++)
-				out << files[i] << "结果: " << pred[i];
+			for(int i=0;i<files.size();i++)
+				out << files[i] << "  结果: " << pred[i] << std::endl;
 			out.close();
 		}
 	}

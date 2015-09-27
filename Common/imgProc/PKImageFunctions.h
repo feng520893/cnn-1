@@ -1,8 +1,8 @@
 #ifndef PKIMAGEFUNCTIONS_H
 #define PKIMAGEFUNCTIONS_H
-#include "pkDefine.h"
-#include"PCA.h"
-#include "CpkMat.h"
+#include "../pkDefine.h"
+#include"../PCA.h"
+#include "../CpkMat.h"
 #include<vector>
 
 namespace pk
@@ -61,6 +61,14 @@ namespace pk
 
 	//左右翻转
 	int LeftRight(CpkMat&dest,CpkMat&src);
+
+	//图片显示
+	int createDlg(const char* name);
+
+	int showDlg(const char* name,CpkMat& img);
+
+	int destroyDlg(const char* name);
+
 
 	//按指定区域获取图片数据
 	int ReadImageRect(CpkMat&dest,int destWidth,const char*data,int x,int y,int srcWidth,int height);

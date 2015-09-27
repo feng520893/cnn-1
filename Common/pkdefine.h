@@ -2,6 +2,7 @@
 #define PKDEFINE_H
 #include <cmath>
 #include <assert.h>
+#include <vector>
 #define NULL 0
 typedef unsigned long DWORD;
 typedef unsigned short WORD;
@@ -89,6 +90,28 @@ namespace pk
 		_Tp x,y;
 	};
 	typedef _tPoint<int> Point;
+
+	template<typename _Tp> struct _tDLparam
+	{
+		_tDLparam():activeType(0),pred(false),predData(NULL){};
+		_tDLparam(int activeType):activeType(activeType),predData(NULL){};
+		_tDLparam(std::vector<_Tp> labels):activeType(activeType),predData(NULL)
+		{
+			this->labels=labels;
+		};
+
+		~_tDLparam()
+		{
+			if(predData!=NULL)
+				delete [] predData;
+		}
+		int activeType;
+		std::vector<_Tp> labels;
+		bool pred;
+		double* predData;
+	};
 };
+
+typedef pk::_tDLparam<int> DLparam;
 
 #endif

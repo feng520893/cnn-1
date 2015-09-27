@@ -3,7 +3,7 @@
 #include<vector>
 
 #include "Cnn.h"
-#include "..\\Common\\PKImageFunctions.h"
+#include "..\Common\imgProc\PKImageFunctions.h"
 #include "..\Common\opencv\transplant.h"
 #include"..\CNNConfig\CNNConfig.h"
 

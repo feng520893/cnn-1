@@ -1,7 +1,6 @@
 #ifndef COMMON_H
 #define COMMON_H
 #include"pkdefine.h"
-#include"pkStruct.h"
 #include<vector>
 #include<string>
 #include<time.h>

@@ -1,9 +1,20 @@
 #include "PKImageFunctions.h"
-#include "./Jpeg/Jpeg.h"
+#include "Jpeg/Jpeg.h"
 #include<cmath>
 #include <string>
+#include<map>
+
+#if _MSC_VER
+#include"showImgDlg\ShowImgWinDlg.h"
+#endif
+
 namespace pk
 {
+
+	std::map<std::string,IShowImgBaseDlg*> g_dlgs;
+
+	typedef std::map<std::string,IShowImgBaseDlg*>::iterator mapDlgIt;
+
 	#pragma pack (2) //2×Ö½Ú¶ÔÆë
 		typedef struct tagBITMAPFILEHEADER
 		{
@@ -253,8 +264,8 @@ namespace pk
 				int b=*(pData+i*img.lineSize+j*3); 
 				int g=*(pData+i*img.lineSize+j*3+1); 
 				int r=*(pData+i*img.lineSize+j*3+2);   
-				int maxval=std::max(b,std::max(g,r));  
-				int minval=std::min(b,std::min(g,r));  
+				int maxval=PK_MAX(b,PK_MAX(g,r));  
+				int minval=PK_MIN(b,PK_MIN(g,r));  
 				int v=maxval;  
 				double diff=maxval-minval;  
 				int s=diff*255/(v+DBL_EPSILON);  
@@ -762,6 +773,42 @@ namespace pk
 		dest=tmp;
 		return PK_SUCCESS;
 	}
+
+	int createDlg(const char* name)
+	{
+		mapDlgIt it=g_dlgs.find(name);
+		if(it!=g_dlgs.end())
+			return PK_ERROR_PARAM;
+		int nRet=PK_SUCCESS;
+#if _MSC_VER
+		IShowImgBaseDlg* pDlg=new CShowImgWinDlg;
+		nRet=pDlg->CreateDlg(name);
+		g_dlgs[name]=pDlg;
+#endif
+		return nRet;
+	}
+
+	int showDlg(const char* name,CpkMat& img)
+	{
+		mapDlgIt it=g_dlgs.find(name);
+		if(it==g_dlgs.end())
+			return PK_ERROR_PARAM;
+		return it->second->ShowDlg(img);
+	}
+
+	int destroyDlg(const char* name)
+	{
+		mapDlgIt it=g_dlgs.find(name);
+		if(it==g_dlgs.end())
+			return PK_ERROR_PARAM;
+		int nRet=it->second->DestroyDlg();
+		if(nRet!=PK_SUCCESS)
+			return nRet;
+		delete [] it->second;
+		g_dlgs.erase(it);
+		return PK_SUCCESS;
+	}
+
 
 };
 

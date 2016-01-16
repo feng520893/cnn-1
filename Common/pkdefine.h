@@ -9,14 +9,6 @@ typedef unsigned short WORD;
 typedef unsigned char BYTE;
 typedef long LONG;
 
-#ifndef PK_MAX
-#define PK_MAX(a,b)            (((a) > (b)) ? (a) : (b))
-#endif
-
-#ifndef PK_MIN
-#define PK_MIN(a,b)            (((a) < (b)) ? (a) : (b))
-#endif
-
 #define INIT_LENG 512*1024
 
 #define PK_SUCCESS                0
@@ -46,14 +38,6 @@ typedef long LONG;
 #define PK_CNN_CPU_RUN         1
 #define PK_CNN_GPU_CUDA_RUN    2
 
-
-struct MinSGD
-{
-	unsigned short epoches;
-	unsigned short minibatch;
-	float alpha;
-	float momentum;
-};
 namespace pk
 {
 	struct vecDistance
@@ -90,28 +74,6 @@ namespace pk
 		_Tp x,y;
 	};
 	typedef _tPoint<int> Point;
-
-	template<typename _Tp> struct _tDLparam
-	{
-		_tDLparam():activeType(0),pred(false),predData(NULL){};
-		_tDLparam(int activeType):activeType(activeType),predData(NULL){};
-		_tDLparam(std::vector<_Tp> labels):activeType(activeType),predData(NULL)
-		{
-			this->labels=labels;
-		};
-
-		~_tDLparam()
-		{
-			if(predData!=NULL)
-				delete [] predData;
-		}
-		int activeType;
-		std::vector<_Tp> labels;
-		bool pred;
-		double* predData;
-	};
 };
-
-typedef pk::_tDLparam<int> DLparam;
 
 #endif

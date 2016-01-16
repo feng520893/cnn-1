@@ -1,6 +1,5 @@
 #include "CpkMat.h"
 #include "mem.h"
-#include"mat_cuda.cuh"
 
 CpkMat::CpkMat()
 {
@@ -35,6 +34,8 @@ CpkMat::~CpkMat()
 
 int CpkMat::addRef(int addCount)
 {
+	if(m_refCount==NULL)
+		return 0;
 	int tmp=*m_refCount;
 	*m_refCount+=addCount;
 	return tmp;
@@ -105,7 +106,7 @@ CpkMat CpkMat::operator* (CpkMat& mx1)
 		break;
 	case DATA_DOUBLE:
 		{
-/*			double* pX1=GetData<double>();
+			double* pX1=GetData<double>();
 			double* pX2=mx1.GetData<double>();
 			double* pDest=mxTmp.GetData<double>();
 			for (int i = 0; i <Row; i++)   
@@ -117,25 +118,7 @@ CpkMat CpkMat::operator* (CpkMat& mx1)
 						pDest[i*mxTmp.Col+k]+= pX2[j*mx1.Col+k] * pX1[i*Col+j];   
 					}   
 				}
-			}*/
-			double* ss=NULL;
-			cudaError_t state=cudaMalloc((void**)&ss,sizeof(double)*Col*Row);
-			state=cudaMemcpy(ss,GetData<double>(),sizeof(double)*Col*Row,cudaMemcpyHostToDevice);
-
-			double* vv=NULL;
-			state=cudaMalloc((void**)&vv,sizeof(double)*mx1.Col*mx1.Row);
-			state=cudaMemcpy(vv,mx1.GetData<double>(),sizeof(double)*mx1.Col*mx1.Row,cudaMemcpyHostToDevice);
-
-			double* cv=NULL;
-			state=cudaMalloc((void**)&cv,sizeof(double)*mxTmp.Col*mxTmp.Row);
-			state=cudaMemset(cv,0,sizeof(double)*mxTmp.Col*mxTmp.Row);
-			matrixMul(ss,Row,Col,vv,mx1.Row,mx1.Col,cv,mxTmp.Col);
-			state=cudaMemcpy(mxTmp.GetData<double>(),cv,sizeof(double)*Row*mx1.Col,cudaMemcpyDeviceToHost);
-
-			cudaFree(ss);
-			cudaFree(vv);
-			cudaFree(cv);
-
+			}
 		}
 		break;
 	case DATA_INT:
@@ -195,21 +178,42 @@ CpkMat CpkMat::operator *(double num)
 
 CpkMat CpkMat::operator /(CpkMat&mx)
 {
-	CpkMat temp(Row,Col,1,m_dataType);
-	if(mx.Row==1)
+	CpkMat temp(Row,Col,Depth,m_dataType);
+	switch(m_dataType)
 	{
-		double* pBuff=temp.GetData<double>();
-		double* pTmp=mx.GetData<double>();
-		for(int i=0;i<Row;i++)
-			for(int j=0;j<Col;j++)
-				pBuff[i*Col+j]=DataUnion.m_pDouble[i*Col+j]/pTmp[j];
+	case DATA_BYTE:
+		{
+			BYTE* pBuff=temp.GetData<BYTE>();
+			BYTE* pX2=mx.GetData<BYTE>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]=DataUnion.m_pByte[i*Col+j]/pX2[i*mx.Col+j];
+		}
+		break;
+	case DATA_DOUBLE:
+		{
+			double* pBuff=temp.GetData<double>();
+			double* pX2=mx.GetData<double>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]=DataUnion.m_pDouble[i*Col+j]/pX2[i*mx.Col+j];
+		}
+		break;
+	case DATA_INT:
+		{
+			int* pBuff=temp.GetData<int>();
+			int* pX2=mx.GetData<int>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]=DataUnion.m_pInt[i*Col+j]/pX2[i*mx.Col+j];;
+		}
+		break;
 	}
 	return temp;
 }
 
 CpkMat CpkMat::operator /(double num)
 {
-
 	CpkMat temp(Row,Col,Depth,m_dataType);
 	switch(m_dataType)
 	{
@@ -274,7 +278,72 @@ CpkMat CpkMat::operator /(int num)
 	return temp;
 }
 
+CpkMat& CpkMat::operator/=(int num)
+{
+	switch(m_dataType)
+	{
+	case DATA_BYTE:
+		{
+			BYTE* pBuff=this->GetData<BYTE>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]/=num;
+		}
+		break;
+	case DATA_DOUBLE:
+		{
+			double* pBuff=this->GetData<double>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]/=num;
+		}
+		break;
+	case DATA_INT:
+		{
+			int* pBuff=this->GetData<int>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]/=num;
+		}
+		break;
+	}
+	return *this;
+}
 
+CpkMat& CpkMat::operator /=(CpkMat&mx)
+{
+	switch(m_dataType)
+	{
+	case DATA_BYTE:
+		{
+			BYTE* pBuff=this->GetData<BYTE>();
+			BYTE* pX2=mx.GetData<BYTE>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]/=pX2[i*mx.Col+j];
+		}
+		break;
+	case DATA_DOUBLE:
+		{
+			double* pBuff=this->GetData<double>();
+			double* pX2=mx.GetData<double>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]/=pX2[i*mx.Col+j];
+		}
+		break;
+	case DATA_INT:
+		{
+			int* pBuff=this->GetData<int>();
+			int* pX2=mx.GetData<int>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]/=pX2[i*mx.Col+j];
+		}
+		break;
+	}
+	return *this;
+}
 
 CpkMat CpkMat::operator-(CpkMat&mx)
 {
@@ -355,6 +424,73 @@ CpkMat CpkMat::operator-(double num)
 	return temp;
 }
 
+CpkMat& CpkMat::operator-=(CpkMat&mx)
+{
+	switch(m_dataType)
+	{
+	case DATA_BYTE:
+		{
+			BYTE* pBuff=this->GetData<BYTE>();
+			BYTE* pX2=mx.GetData<BYTE>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<lineSize;j++)
+					pBuff[i*Col+j]-=pX2[i*mx.lineSize+j];
+		}
+		break;
+	case DATA_DOUBLE:
+		{
+			double* pBuff=this->GetData<double>();
+			double* pX2=mx.GetData<double>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]-=pX2[i*mx.Col+j];
+		}
+		break;
+	case DATA_INT:
+		{
+			int* pBuff=this->GetData<int>();
+			int* pX2=mx.GetData<int>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]-=pX2[i*mx.Col+j];;
+		}
+		break;
+	}
+	return *this;
+}
+
+CpkMat& CpkMat::operator-=(double num)
+{
+	switch(m_dataType)
+	{
+	case DATA_BYTE:
+		{
+			BYTE* pBuff=this->GetData<BYTE>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<lineSize;j++)
+					pBuff[i*lineSize+j]-=num;
+		}
+		break;
+	case DATA_DOUBLE:
+		{
+			double* pBuff=this->GetData<double>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]-=num;
+		}
+		break;
+	case DATA_INT:
+		{
+			int* pBuff=this->GetData<int>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]-=num;
+		}
+		break;
+	}
+	return *this;
+}
+
 
 CpkMat CpkMat::operator+(CpkMat&mx)
 {
@@ -425,6 +561,80 @@ CpkMat CpkMat::operator+(double num)
 	return temp;
 }
 
+CpkMat& CpkMat::operator+=(double num)
+{
+	switch(m_dataType)
+	{
+	case DATA_BYTE:
+		{
+			BYTE* pBuff=this->GetData<BYTE>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<lineSize;j++)
+					pBuff[i*Col+j]+=num;
+		}
+		break;
+	case DATA_DOUBLE:
+		{
+			double* pBuff=this->GetData<double>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]+=num;
+		}
+		break;
+	case DATA_INT:
+		{
+			int* pBuff=this->GetData<int>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]+=num;
+		}
+		break;
+	}
+	return *this;
+}
+
+CpkMat& CpkMat::operator+=(CpkMat&mx)
+{
+	switch(m_dataType)
+	{
+	case DATA_BYTE:
+		{
+			BYTE* pBuff=this->GetData<BYTE>();
+			BYTE* pX2=mx.GetData<BYTE>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<lineSize;j++)
+					pBuff[i*lineSize+j]+=pX2[i*mx.lineSize+j];
+		}
+		break;
+	case DATA_DOUBLE:
+		{
+			double* pBuff=this->GetData<double>();
+			double* pX2=mx.GetData<double>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]+=pX2[i*mx.Col+j];
+		}
+		break;
+	case DATA_INT:
+		{
+			int* pBuff=this->GetData<int>();
+			int* pX2=mx.GetData<int>();
+			for(int i=0;i<Row;i++)
+				for(int j=0;j<Col;j++)
+					pBuff[i*Col+j]+=pX2[i*mx.Col+j];;
+		}
+		break;
+	}
+	return *this;
+}
+
+bool CpkMat::operator== (const CpkMat& mx) const
+{
+	if(this->DataUnion.m_pByte==mx.DataUnion.m_pByte)
+		return true;
+	return false;
+}
+
 void CpkMat::denominator()
 {
 	if(m_dataType==DATA_DOUBLE)
@@ -491,6 +701,20 @@ void CpkMat::print()
 
 int CpkMat::Resize(int row,int col,int depth,DATA_TYPE type,void* data/* =NULL */)
 {
+	if(data==NULL&&type==DATA_SAME)
+	{
+		if(this->Row*this->Col*this->Depth!=row*col*depth)
+				return PK_NOT_ALLOW_OPERATOR;
+		Row=row;
+		Col=col;
+		Depth=depth;
+		if(m_dataType==DATA_BYTE)
+			lineSize=lineSize=(col*depth+3)/4*4;
+		else
+			lineSize=col;
+		return PK_SUCCESS;
+	}
+
 	if(m_refCount&&addRef(-1)==1)
 		release();
 	Row=row;
@@ -582,7 +806,7 @@ int CpkMat::Resize(DATA_TYPE type)
 	{
 	case DATA_DOUBLE:
 		{
-			double* pData=new double[Row*Col];
+			double* pData=new double[Row*lineSize];
 			for(int i=0;i<Row*Col;i++)
 				pData[i]=(double)DataUnion.m_pByte[i];
 			Resize(Row,Col,Depth,type,pData);
@@ -591,7 +815,7 @@ int CpkMat::Resize(DATA_TYPE type)
 		}
 	case DATA_BYTE:
 		{
-			BYTE* pData=new BYTE[Row*Col];
+			BYTE* pData=new BYTE[Row*lineSize];
 			for(int i=0;i<Row*Col;i++)
 				pData[i]=(BYTE)abs(DataUnion.m_pDouble[i]);
 			Resize(Row,Col,Depth,type,pData);
@@ -604,6 +828,12 @@ int CpkMat::Resize(DATA_TYPE type)
 
 int CpkMat::copyTo(CpkMat& newMat,DATA_TYPE newType)
 {
+	if(newMat==*this)
+	{
+		newMat=*this;
+		return PK_SUCCESS;
+	}
+
 	if(m_dataType==newType)
 		newMat.Resize(Row,Col,Depth,newType,DataUnion.m_pByte);
 	else
@@ -744,7 +974,8 @@ int CpkMat::ColumnVector(CpkMat& dest)
 
 CpkMat& CpkMat::RowVector()
 {
-	Col=Row*Col*Depth;
+	Col=Row*Col;
+	lineSize=Col*Depth;
 	Row=1;
 	return *this;
 }
@@ -768,178 +999,6 @@ int CpkMat::RowVector(CpkMat& dest)
 		break;
 	case DATA_INT:
 		dest.Resize(1,Row*Col,Depth,m_dataType,DataUnion.m_pInt);
-		break;
-	}
-	return PK_SUCCESS;
-}
-
-int CpkMat::setRowData(int nRow,void* data)
-{
-	if(nRow>=Row)
-		return PK_NOT_ALLOW_OPERATOR;
-	switch(m_dataType)
-	{
-	case DATA_INT:
-		memcpy(DataUnion.m_pInt+nRow*Col*Depth,data,Col*sizeof(int));
-		break;
-	case DATA_BYTE:
-		memcpy(DataUnion.m_pByte+nRow*Col*Depth,data,Col*sizeof(BYTE));
-		break;
-	case DATA_DOUBLE:
-		memcpy(DataUnion.m_pDouble+nRow*Col*Depth,data,Col*sizeof(double));
-	}
-	return PK_SUCCESS;
-}
-
-int CpkMat::setRowData(int nRow,CpkMat& srcMat)
-{
-	if(nRow>=Row)
-		return PK_NOT_ALLOW_OPERATOR;
-	switch(m_dataType)
-	{
-	case DATA_INT:
-		{
-			int* pBuff=srcMat.GetData<int>();
-			setRowData(nRow,pBuff);
-		}
-		break;
-	case DATA_BYTE:
-		{
-			BYTE* pBuff=srcMat.GetData<BYTE>();
-			setRowData(nRow,pBuff);
-		}
-		break;
-	case DATA_DOUBLE:
-		{
-			double* pBuff=srcMat.GetData<double>();
-			setRowData(nRow,pBuff);
-		}
-		break;
-	}
-	return PK_SUCCESS;
-}
-
-int CpkMat::setColData(int nCol,void* data)
-{
-	if(nCol>=Col)
-		return PK_NOT_ALLOW_OPERATOR;
-	switch(m_dataType)
-	{
-	case DATA_INT:
-		{
-			int* pData=(int*)data;
-			for(int i=0;i<Row;i++)
-				DataUnion.m_pInt[i*Col+nCol]=*(pData++);
-		}
-		break;
-	case DATA_BYTE:
-		{
-			BYTE* pData=(BYTE*)data;
-			for(int i=0;i<Row;i++)
-				DataUnion.m_pByte[i*Col+nCol]=*(pData++);
-		}
-		break;
-	case DATA_DOUBLE:
-		{
-			double* pData=(double*)data;
-			for(int i=0;i<Row;i++)
-				DataUnion.m_pDouble[i*Col+nCol]=*(pData++);
-		}
-	}
-	return PK_SUCCESS;
-}
-
-int CpkMat::setColData(int nCol,CpkMat& srcMat)
-{
-	if(nCol>=Col||srcMat.Col!=1)
-		return PK_NOT_ALLOW_OPERATOR;
-	switch(m_dataType)
-	{
-	case DATA_INT:
-		{
-			switch(srcMat.GetType())
-			{
-				case DATA_BYTE:
-				{
-					BYTE* pData=srcMat.GetData<BYTE>();
-					for(int i=0;i<Row;i++)
-						DataUnion.m_pInt[i*Col+nCol]=*(pData++);
-				}
-				break;
-				case DATA_DOUBLE:
-					{
-						double* pData=srcMat.GetData<double>();
-						for(int i=0;i<Row;i++)
-							DataUnion.m_pInt[i*Col+nCol]=*(pData++);
-					}
-					break;
-				case DATA_INT:
-					{
-						int* pData=srcMat.GetData<int>();
-						for(int i=0;i<Row;i++)
-							DataUnion.m_pInt[i*Col+nCol]=*(pData++);
-					}
-					break;
-			}
-			break;
-			
-		}
-		break;
-	case DATA_BYTE:
-		{
-			switch(srcMat.GetType())
-			{
-			case DATA_BYTE:
-				{
-					BYTE* pData=srcMat.GetData<BYTE>();
-					for(int i=0;i<Row;i++)
-						DataUnion.m_pByte[i*Col+nCol]=*(pData++);
-				}
-				break;
-			case DATA_DOUBLE:
-				{
-					double* pData=srcMat.GetData<double>();
-					for(int i=0;i<Row;i++)
-						DataUnion.m_pByte[i*Col+nCol]=*(pData++);
-				}
-				break;
-			case DATA_INT:
-				{
-					int* pData=srcMat.GetData<int>();
-					for(int i=0;i<Row;i++)
-						DataUnion.m_pByte[i*Col+nCol]=*(pData++);
-				}
-				break;
-			}
-		}
-		break;
-	case DATA_DOUBLE:
-		{
-			switch(srcMat.GetType())
-			{
-			case DATA_BYTE:
-				{
-					BYTE* pData=srcMat.GetData<BYTE>();
-					for(int i=0;i<Row;i++)
-						DataUnion.m_pDouble[i*Col+nCol]=*(pData++);
-				}
-				break;
-			case DATA_DOUBLE:
-				{
-					double* pData=srcMat.GetData<double>();
-					for(int i=0;i<Row;i++)
-						DataUnion.m_pDouble[i*Col+nCol]=*(pData++);
-				}
-				break;
-			case DATA_INT:
-				{
-					int* pData=srcMat.GetData<int>();
-					for(int i=0;i<Row;i++)
-						DataUnion.m_pDouble[i*Col+nCol]=*(pData++);
-				}
-				break;
-			}
-		}
 		break;
 	}
 	return PK_SUCCESS;
@@ -984,17 +1043,23 @@ int CpkMat::setAllData(int data)
 
 int CpkMat::setData(CpkMat&src,int rowS,int rowE,int colS,int colE)
 {
+	int dCol=colE-colS;
+	int dRow=rowE-rowS;
+
+	if(dCol>lineSize||dRow>Row)
+		return PK_NOT_ALLOW_OPERATOR;
+
 	switch(m_dataType)
 	{
 	case DATA_DOUBLE:
 		{
 			double * pSrc=src.GetData<double>();
-			for(int i=0;i<=rowE-rowS;i++)
+			for(int i=0;i<dRow;i++)
 			{
-				for(int j=0;j<=colE-colS;j++)
+				for(int j=0;j<dCol;j++)
 				{
 					for(int n=0;n<Depth;n++)
-						DataUnion.m_pDouble[(i+rowS)*Col+j+colS+n]=pSrc[i*src.Col+j+n];
+						DataUnion.m_pDouble[(i+rowS)*lineSize+j+colS+n]=pSrc[i*src.lineSize+j+n];
 				}
 			}
 			break;
@@ -1002,13 +1067,10 @@ int CpkMat::setData(CpkMat&src,int rowS,int rowE,int colS,int colE)
 	case DATA_BYTE:
 		{
 			BYTE * pSrc=src.GetData<BYTE>();
-			for(int i=0;i<=rowE-rowS;i++)
+			for(int i=0;i<dRow;i++)
 			{
-				for(int j=0;j<=colE-colS;j++)
-				{
-					for(int n=0;n<Depth;n++)
-						DataUnion.m_pByte[(i+rowS)*Col+j+colS+n]=pSrc[i*src.Col+j+n];
-				}
+				for(int j=0;j<src.lineSize;j++)
+					DataUnion.m_pByte[(i+rowS)*lineSize+j+colS*Depth]=pSrc[i*src.lineSize+j];
 			}
 			break;
 		}
@@ -1020,74 +1082,11 @@ int CpkMat::setData(CpkMat&src,int rowS,int rowE,int colS,int colE)
 				for(int j=0;j<=colE-colS;j++)
 				{
 					for(int n=0;n<Depth;n++)
-						DataUnion.m_pInt[(i+rowS)*Col+j+colS+n]=pSrc[i*src.Col+j+n];
+						DataUnion.m_pInt[(i+rowS)*lineSize+j+colS+n]=pSrc[i*src.lineSize+j+n];
 				}
 			}
 			break;
 		}
-	}
-	return PK_SUCCESS;
-}
-
-
-int CpkMat::getColData(CpkMat&dest,int nCol)
-{
-	if(nCol>=Col||nCol<0)
-		return PK_NOT_ALLOW_OPERATOR;
-
-	dest.Resize(Row,1,Depth,GetType());
-	switch(m_dataType)
-	{
-	case DATA_BYTE:
-		{
-			BYTE* pBuff=dest.GetData<BYTE>();
-			for(int i=0;i<Row;i++)
-				*(pBuff++)=DataUnion.m_pByte[i*Col+nCol];
-		}
-		break;
-	case DATA_DOUBLE:
-		{
-			double* pBuff=dest.GetData<double>();
-			for(int i=0;i<Row;i++)
-				*(pBuff++)=DataUnion.m_pDouble[i*Col+nCol];
-		}
-		break;
-	case DATA_INT:
-		{
-			int* pBuff=dest.GetData<int>();
-			for(int i=0;i<Row;i++)
-				*(pBuff++)=DataUnion.m_pInt[i*Col+nCol];
-		}
-		break;
-	}
-	return PK_SUCCESS;
-}
-
-int CpkMat::getRow(CpkMat&dest,int nRow)
-{
-	if(nRow<0||nRow>=Row)
-		return PK_NOT_ALLOW_OPERATOR;
-	dest.Resize(1,Col,Depth,GetType());
-	switch(m_dataType)
-	{
-	case DATA_BYTE:
-		{
-			BYTE* pBuff=dest.GetData<BYTE>();
-			memcpy(pBuff,DataUnion.m_pByte+nRow*Col,sizeof(BYTE)*Col);
-		}
-		break;
-	case DATA_DOUBLE:
-		{
-			double* pBuff=dest.GetData<double>();
-			memcpy(pBuff,DataUnion.m_pDouble+nRow*Col,sizeof(double)*Col);
-		}
-		break;
-	case DATA_INT:
-		{
-			int* pBuff=dest.GetData<int>();
-			memcpy(pBuff,DataUnion.m_pInt+nRow*Col,sizeof(int)*Col);
-		}
-		break;
 	}
 	return PK_SUCCESS;
 }
@@ -1097,7 +1096,7 @@ int CpkMat::GetData(CpkMat& dest,int rowS,int rowE,int colS,int colE)
 	int dCol=colE-colS;
 	int dRow=rowE-rowS;
 
-	if(colE>Col||rowE>Row||dCol==0||dRow==0||dCol>Col||dRow>Row)
+	if(colE>lineSize||dRow>Row)
 		return PK_NOT_ALLOW_OPERATOR;
 
 	switch(m_dataType)
@@ -1113,9 +1112,13 @@ int CpkMat::GetData(CpkMat& dest,int rowS,int rowE,int colS,int colE)
 		}
 	case DATA_BYTE:
 		{
-			int lineOut=(dCol*Depth+3)/4*4;
-			
+			int lineOut=0;
+			if(colS==Col-1)
+				lineOut=lineSize-(colS*Depth+3)/4*4;
+			else
+				lineOut=dCol*Depth;
 			dest.Resize(dRow,dCol,Depth,m_dataType);
+			dest.lineSize=lineOut;
 
 			BYTE * pdata=dest.GetData<BYTE>();
 			BYTE * pSrc=DataUnion.m_pByte;

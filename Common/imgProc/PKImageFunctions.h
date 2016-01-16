@@ -1,23 +1,28 @@
 #ifndef PKIMAGEFUNCTIONS_H
 #define PKIMAGEFUNCTIONS_H
 #include "../pkDefine.h"
-#include"../PCA.h"
 #include "../CpkMat.h"
 #include<vector>
 
 namespace pk
 {
-
 	enum ZOOM_TYPE
 	{ 
-		NEAREST=0,
-		BILINEAR,
+		NEAREST=0,//最临近插值算法
+		BILINEAR, //双线性内插值算法
+		CUBIC,    //立方插值
 	};
 
 	enum CHANGE_IMAGE_FORMAT
 	{
 		BGR2HSV=0,
 		BGR2GRAY,
+	};
+
+	enum IMAGE_NOISE
+	{
+		 GAUSSIAN=0,
+		 SALT_PEPPER,
 	};
 
 	int imwrite(const char*path,CpkMat& src);
@@ -69,6 +74,8 @@ namespace pk
 
 	int destroyDlg(const char* name);
 
+	//图片污染
+	int imNoise(CpkMat& src,CpkMat& dest,IMAGE_NOISE type,double param1=0,double param2=0);
 
 	//按指定区域获取图片数据
 	int ReadImageRect(CpkMat&dest,int destWidth,const char*data,int x,int y,int srcWidth,int height);

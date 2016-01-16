@@ -51,7 +51,7 @@ namespace pk
 	//产生均匀分布的随机变量
 	CpkMat rand(int row,int col); 
 	//产生标准高斯分布的矩阵
-	CpkMat randn(int row,int col);
+	CpkMat randn(int row,int col,float zoomSize=1);
 	//生成1个随机打乱的序列,从0开始，num-1为序列最大值
 	CpkMat randperm(int num);
 

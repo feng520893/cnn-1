@@ -1,5 +1,6 @@
 #include "PKImageFunctions.h"
 #include "Jpeg/Jpeg.h"
+#include"../PKMatFunctions.h"
 #include<cmath>
 #include <string>
 #include<map>
@@ -264,8 +265,8 @@ namespace pk
 				int b=*(pData+i*img.lineSize+j*3); 
 				int g=*(pData+i*img.lineSize+j*3+1); 
 				int r=*(pData+i*img.lineSize+j*3+2);   
-				int maxval=PK_MAX(b,PK_MAX(g,r));  
-				int minval=PK_MIN(b,PK_MIN(g,r));  
+				int maxval=max(b,max(g,r));  
+				int minval=min(b,min(g,r));  
 				int v=maxval;  
 				double diff=maxval-minval;  
 				int s=diff*255/(v+DBL_EPSILON);  
@@ -357,6 +358,41 @@ namespace pk
 	}
 
 
+	/****************图像缩放铺助函数*****************/
+	int getSincVec(float *pfVec, float fPos, float fScale,int cubicSize=3)
+	{
+		int nPos = (int)fPos;
+		fPos -= (float)nPos;
+		memset(pfVec, 0, sizeof(float) * cubicSize);
+		float fSum = 0.f;
+		for (int i=0; i<cubicSize; i++)
+		{
+			float fTmp = (i - 1.f + fPos) * 3.14159265358979323846f;
+			if (fTmp > 0.00001 || fTmp < -0.00001)
+				pfVec[i] = sinf(fTmp * fScale) / fTmp;
+			else
+				pfVec[i] = 1.f;
+			fSum += pfVec[i];
+		}
+		fSum = 1.f / fSum;
+		for (int i=0; i<cubicSize; i++)
+			pfVec[i] *= fSum;
+		return nPos;
+	}
+
+	void calcSincMat(float *pfMat, float *pfVecY, float *pfVecX,int cubicSize=3)
+	{
+		for (int i=0; i<cubicSize; i++)
+		{
+			for (int j=0; j<cubicSize; j++)
+			{
+				pfMat[i * cubicSize + j] = pfVecY[i] * pfVecX[j];
+			}
+		}
+	}
+
+	/**********************END************************/
+
 	int zoom(CpkMat&dest,int widthOut,int heighOut,CpkMat&src,ZOOM_TYPE type)
 	{
 		if(src.GetType()!=CpkMat::DATA_BYTE)
@@ -379,34 +415,26 @@ namespace pk
 		{
 			for(int i=0;i<heighOut;i++)
 			{
-				for(int j=0;j<lineByteOut;j++)
+				for(int j=0;j<widthOut;j++)
 				{
 					coordinateX=(int)(ratioX*j+0.5);
 					coordinateY=(int)(ratioY*i+0.5);
-					if(0<=coordinateX&&coordinateX<src.Col&&coordinateY>=0&&coordinateY<src.Row)
-					{
-						for(k=0;k<pix;k++)
-							pDest[i*lineByteOut+j*pix+k]=pSrc[coordinateY*lineByteIn+coordinateX*pix+k];
-					}
-					else
-					{
-						for(k=0;k<pix;k++)
-							pDest[i*lineByteOut+j*pix+k]=255;
-					}
+					for(k=0;k<pix;k++)
+						pDest[i*lineByteOut+j*pix+k]=pSrc[coordinateY*lineByteIn+coordinateX*pix+k];
 				}
 			}
 		}
-		else
+		else if(type==BILINEAR)
 		{
 			for (int i = 0; i < heighOut; i++)
 			{
 				int tH = (int)(ratioY * i);
-				int tH1 = PK_MIN(tH + 1,src.Row - 1);
+				int tH1 = min(tH + 1,src.Row - 1);
 				float u = (float)(ratioY * i - tH);
-				for (int j = 0; j < lineByteOut; j++)
+				for (int j = 0; j < widthOut; j++)
 				{
 					int tW = (int)(ratioX * j); 
-					int tW1 = PK_MIN(tW + 1,src.Col - 1);
+					int tW1 = min(tW + 1,src.Col - 1);
 					float v = (float)(ratioX * j - tW);
 					//f(i+u,j+v) = (1-u)(1-v)f(i,j) + (1-u)vf(i,j+1) + u(1-v)f(i+1,j) + uvf(i+1,j+1) 
 					for (int k = 0; k < pix; k++)
@@ -420,6 +448,41 @@ namespace pk
 				}
 			}
 		}
+		else
+		{
+			const int CUBIC_SIZE = 3;
+			float pfVecX[CUBIC_SIZE], pfVecY[CUBIC_SIZE], pfMat[CUBIC_SIZE][CUBIC_SIZE];
+			for (int i=1; i<heighOut-1; i++)
+			{
+				int nSrcY = getSincVec(pfVecY, ratioY * i, 1.f / ratioY);
+				for (int j = 1; j < widthOut-1; j++)
+				{
+					int nSrcX = getSincVec(pfVecX, ratioX * j, 1.f / ratioX);
+					
+					calcSincMat(pfMat[0], pfVecY, pfVecX);
+					BYTE *pbyTmpDes = pDest + i * lineByteOut + j * pix;
+					BYTE *pbyTmpSrc = pSrc + nSrcY * lineByteIn + nSrcX * pix;
+					for (int k = 0; k < pix; k++)
+					{
+						float fTmp = pbyTmpSrc[0] * pfMat[1][1];
+						fTmp += pbyTmpSrc[-lineByteIn] * pfMat[0][1];
+						fTmp += pbyTmpSrc[lineByteIn] * pfMat[2][1];
+						fTmp += pbyTmpSrc[-pix] * pfMat[1][0];
+						fTmp += pbyTmpSrc[-pix-lineByteIn] * pfMat[0][0];
+						fTmp += pbyTmpSrc[-pix+lineByteIn] * pfMat[2][0];
+						fTmp += pbyTmpSrc[pix] * pfMat[1][2];
+						fTmp += pbyTmpSrc[pix-lineByteIn] * pfMat[0][2];
+						fTmp += pbyTmpSrc[pix+lineByteIn] * pfMat[2][2];
+						if (fTmp < 0.f) 
+							fTmp = 0.f;
+						if (fTmp > 255.f) 
+							fTmp = 255.f;
+						*pbyTmpDes++ = (BYTE)fTmp;
+						pbyTmpSrc++;
+					} 
+				}
+			}
+		}
 		dest=tmp;
 		return PK_SUCCESS;
 	}
@@ -427,7 +490,7 @@ namespace pk
 	int zoomMidImage(CpkMat& dd,int zoomSize,ZOOM_TYPE type)
 	{
 		CpkMat tmp;
-		float rate=PK_MIN(dd.Row,dd.Col)/(float)zoomSize;
+		float rate=min(dd.Row,dd.Col)/(float)zoomSize;
 		if(dd.Row>dd.Col)
 		{
 			pk::zoom(tmp,zoomSize,dd.Row/rate,dd,type);
@@ -450,8 +513,8 @@ namespace pk
 		for(int i=0;i<src.Row;i++)
 		{
 			CpkMat tmp2;
-			src.getRow(tmp2,src.Row-i-1);
-			tmp.setRowData(i,tmp2);
+			src.GetData(tmp2,src.Row-i-1,src.Row-i,0,src.Col);
+			tmp.setData(tmp2,i,i+1,0,src.Col);
 		}
 		dest=tmp;
 		return PK_SUCCESS;
@@ -464,8 +527,8 @@ namespace pk
 		for(int i=0;i<src.Col;i++)
 		{
 			CpkMat tmp2;
-			src.getColData(tmp2,src.Col-i-1);
-			tmp.setColData(i,tmp2);
+			src.GetData(tmp2,0,src.Row,src.Col-i-1,src.Col-i);
+			tmp.setData(tmp2,0,src.Row,i,i+1);
 		}
 		dest=tmp;
 		return PK_SUCCESS;
@@ -809,6 +872,81 @@ namespace pk
 		return PK_SUCCESS;
 	}
 
+	//mean是均值，sigma是方差
+	int gaussianNoise(CpkMat& src,CpkMat& dest,double sigma,double mean)
+	{
+		CpkMat rates=pk::randn(src.Row,src.Col);
+		CpkMat tmpImg(src.Row,src.Col,src.Depth,src.GetType());
+		for(int row=0;row<src.Row;row++)
+		{
+			for(int col=0;col<src.Col;col++)
+			{
+				BYTE* pData=src.GetData<BYTE>()+row*src.lineSize+col*src.Depth;
+				BYTE* pTmpData=tmpImg.GetData<BYTE>()+row*tmpImg.lineSize+col*tmpImg.Depth;
+				for(int k=0;k<src.Depth;k++)
+				{
+				  double gaussianValue= rates.at<double>(row,col);
+				  while(gaussianValue>1)
+					  gaussianValue-=1;
+				  while(gaussianValue<-1)
+					  gaussianValue+=1;
+				  //6是保证高斯噪音在[-6,6]之间
+				  int tmp=pData[k]+gaussianValue*sigma*6+mean;
+				  if(tmp>255)
+					  pTmpData[k]=255;
+				  else
+				  pTmpData[k]=tmp;
+				}
+			}
+		}
+		dest=tmpImg;
+		return PK_SUCCESS;
+	}
+
+	int saltPepperNoise(CpkMat& src,CpkMat& dest,double rate=0.05)
+	{
+		if(src.GetType()!=CpkMat::DATA_BYTE)
+			return PK_NOT_ALLOW_OPERATOR;
+		int size=src.Row*src.lineSize;
+		int number=size*rate*2;//宽和高各一条
+
+		CpkMat rates=rand(1,number);
+
+		CpkMat tmp(src.Row,src.Col,src.Depth,src.GetType(),src.GetData<BYTE>());
+		BYTE* pData=tmp.GetData<BYTE>();
+		double* pRates=rates.GetData<double>();
+		for(int i=0;i<number;i+=2)
+		{
+			int row = pRates[i]*(src.Row-1);  
+			int col = pRates[i+1]*(src.Col-1);  
+			int index=row*src.lineSize+col*src.Depth;
+			for(int j=0;j<src.Depth;j++)
+				pData[index+j]=255;
+		}
+		dest=tmp;
+		return PK_SUCCESS;
+	}
+
+	int imNoise(CpkMat& src,CpkMat& dest,IMAGE_NOISE type,double param1,double param2)
+	{
+		int nRet=PK_SUCCESS;
+		switch(type)
+		{
+		case GAUSSIAN:
+			nRet=gaussianNoise(src,dest,param1,param2);
+			break;
+		case SALT_PEPPER:
+			if(param1==0)
+				nRet=saltPepperNoise(src,dest);
+			else
+				nRet=saltPepperNoise(src,dest,param1);
+			break;
+		default:
+			nRet=PK_NOT_ALLOW_OPERATOR;
+
+		}
+		return nRet;
+	}
 
 };
 

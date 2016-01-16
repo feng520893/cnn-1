@@ -1,9 +1,17 @@
 #include "PKMatFunctions.h"
 #include <fstream>
 #include <ctime>
+
 namespace pk
 {
-	#define MAX(a,b) (a>b)?(a):(b)
+#ifndef max
+#define max(a,b) (a>b)?(a):(b)
+#endif
+
+#ifndef min
+#define min(a,b) (a>b)?(b):(a)
+#endif
+
 
 
 	int normalization(CpkMat&dest,CpkMat&src,double min,double max)
@@ -176,7 +184,7 @@ namespace pk
 		CpkMat tmp;
 		if(src.Col!=1&&src.Col!=1)
 			return tmp;
-		int length=PK_MAX(src.Col,src.Row);
+		int length=max(src.Col,src.Row);
 		tmp.Resize(length,length,1,src.GetType());
 		switch(src.GetType())
 		{
@@ -208,7 +216,7 @@ namespace pk
 			return false;   
 		mtxS=src;
 		// ¡Ÿ ±ª∫≥Â«¯   
-		int ka = MAX(m, n) + 1;   
+		int ka = max(m, n) + 1;   
 		s = new double[ka]; 
 		memset(s,0,sizeof(double)*ka);
 		e = new double[ka];   
@@ -871,12 +879,12 @@ namespace pk
 				for (int j = 0; j < dst_cols; j++) 
 				{       
 					double sum = 0;  
-					kernel_i = kernel_row - 1 - PK_MAX(0, edge_row - i);  
-					src_i = PK_MAX(0, i - edge_row);  
+					kernel_i = kernel_row - 1 - max(0, edge_row - i);  
+					src_i = max(0, i - edge_row);  
 					for (; kernel_i >= 0 && src_i < src_row; kernel_i--, src_i++)
 					{  
-						kernel_j = kernel_cols - 1 - PK_MAX(0, edge_cols - j);  
-						src_j =PK_MAX(0, j - edge_cols);  
+						kernel_j = kernel_cols - 1 - max(0, edge_cols - j);  
+						src_j =max(0, j - edge_cols);  
 						for (; kernel_j >= 0 && src_j < src_cols; kernel_j--, src_j++)
 							sum += pSrc[src_i*src.Col+src_j] * pMask[kernel_i*mask.Col+kernel_j];  
 					}             
@@ -952,7 +960,7 @@ namespace pk
 		return temp;
 	}
 
-	CpkMat randn(int row,int col)
+	CpkMat randn(int row,int col,float zoomSize)
 	{
 /*		srand(time(NULL));
 		CpkMat temp(row,col,1,CpkMat::DATA_DOUBLE);
@@ -992,7 +1000,7 @@ namespace pk
 				} else
 					X = V2 * sqrt(-2 * ::log(S) / S);
 				phase = 1 - phase;
-				pData[i*col+j]=X;
+				pData[i*col+j]=X*zoomSize;
 			}
 		}
 		return temp;

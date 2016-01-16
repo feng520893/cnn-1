@@ -106,7 +106,7 @@ namespace pk
 
 	int CShowImgWinDlg::ShowDlg(CpkMat& img)
 	{
-		if(!SetWindowPos(m_hWnd,HWND_TOP,0,0,img.Col,img.Row,SWP_SHOWWINDOW|SWP_NOMOVE))
+		if(!SetWindowPos(m_hWnd,HWND_TOP,0,0,img.Col,img.Row+30,SWP_SHOWWINDOW|SWP_NOMOVE))
 			return GetLastError();
 
 		BYTE* tmp=NULL;

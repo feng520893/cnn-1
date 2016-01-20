@@ -1,6 +1,6 @@
 #include"tools.h"
-#include"DLerror.h"
-#include"netDefine.h"
+#include"../net/DLerror.h"
+#include"../net/netDefine.h"
 #include<io.h>
 #include<algorithm>
 

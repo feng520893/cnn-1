@@ -35,8 +35,8 @@ int CSolve::init(const char* configPath)
 		{
 			if(_access(m_params.saveModelPath.c_str(),0)!=0)
 				return NET_FILE_NOT_EXIST;
-			if(m_params.saveModelPath[m_params.saveModelPath.length()]!='/'||
-				m_params.saveModelPath.at(m_params.saveModelPath.length())!='\\')
+			if(m_params.saveModelPath.at(m_params.saveModelPath.length()-1)!='/'||
+				m_params.saveModelPath.at(m_params.saveModelPath.length()-1)!='\\')
 				m_params.saveModelPath+='/';
 		}
 

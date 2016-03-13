@@ -4,14 +4,10 @@ int CPoolLayerGPU::setup(std::vector<Blob<precision>*>& inputs,std::vector<Blob<
 {
 	PoolParam poolParam=m_param.poolParam;
 
-	for(int i=0;i<inputs.size();i++)
-	{
-		int dataWidthDim=ceil((float)inputs[i]->dimWidth/poolParam.kernelDim);
-		int dataHeightDim=ceil((float)inputs[i]->dimHeight/poolParam.kernelDim);
-		outputs[i]->create(inputs[i]->num,inputs[i]->dataChannel,dataHeightDim,dataWidthDim);
-	}
-
-	m_maxIndexData.create(inputs[0]->num,inputs[0]->dataChannel,inputs[0]->dimHeight/poolParam.kernelDim,inputs[0]->dimWidth/poolParam.kernelDim);
+	int dataHeightDim=ceil((float)inputs[0]->dimHeight/poolParam.kernelDim);
+	int dataWidthDim=ceil((float)inputs[0]->dimWidth/poolParam.kernelDim);
+	outputs[0]->create(inputs[0]->num,inputs[0]->dataChannel,dataHeightDim,dataWidthDim);
+	m_maxIndexData.create(inputs[0]->num,inputs[0]->dataChannel,dataHeightDim,dataWidthDim);
 
 	return 0;
 }
@@ -24,6 +20,7 @@ __global__ void maxPool(
 						int convDim,
 						int numFeature,
 						precision* poolData,
+						int poolDim,
 						precision* maxIndexData,
 						int poolArea
 						)
@@ -31,7 +28,6 @@ __global__ void maxPool(
 	int srcNo=blockIdx.x;
 	int featureNo=blockIdx.y;
 	int conv2=convDim*convDim;
-	int poolDim=convDim/poolArea;
 	int poolDim2=poolDim*poolDim;
 	precision* pConv=convData+(srcNo*numFeature+featureNo)*conv2;
 	precision* pPoolData=poolData+(srcNo*numFeature+featureNo)*poolDim2;
@@ -46,9 +42,9 @@ __global__ void maxPool(
 		precision dTmp=0.0;
 		int index=0;
 
-		for(int poolRow =0;poolRow<poolArea;poolRow++)
+		for(int poolRow =0;poolRow<poolArea&&convY+poolRow<convDim;poolRow++)
 		{
-			for(int poolCol = 0;poolCol<poolArea;poolCol++)
+			for(int poolCol = 0;poolCol<poolArea&&convX+poolCol<convDim;poolCol++)
 			{
 				dTmp=pConv[(convY+poolRow)*convDim+convX+poolCol];
 				if(maxNum<dTmp)
@@ -70,13 +66,13 @@ __global__ void avgPool(
 						int convDim,
 						int numFeature,
 						precision* poolData,
+						int poolDim,
 						int poolArea
 						)
 {
 	int srcNo=blockIdx.x;
 	int featureNo=blockIdx.y;
 	int conv2=convDim*convDim;
-	int poolDim=convDim/poolArea;
 	int poolDim2=poolDim*poolDim;
 	precision* pConv=convData+(srcNo*numFeature+featureNo)*conv2;
 	precision* pPoolData=poolData+(srcNo*numFeature+featureNo)*poolDim2;
@@ -88,11 +84,9 @@ __global__ void avgPool(
 
 		precision avgNum=0.0;
 
-		for(int poolRow =0;poolRow<poolArea;poolRow++)
-		{
-			for(int poolCol = 0;poolCol<poolArea;poolCol++)
+		for(int poolRow =0;poolRow<poolArea&&convY+poolRow<convDim;poolRow++)
+			for(int poolCol = 0;poolCol<poolArea&&convX+poolCol<convDim;poolCol++)
 				avgNum+=pConv[(convY+poolRow)*convDim+convX+poolCol];
-		}
 		avgNum/=poolArea*poolArea;
 		pPoolData[threadIdx.y*poolDim+threadIdx.x]=avgNum;
 	}
@@ -109,6 +103,7 @@ precision CPoolLayerGPU::feedforward(std::vector<Blob<precision>*>& bottoms,std:
 						 bottoms[0]->dimWidth,
 						 bottoms[0]->dataChannel,
 						 tops[0]->gpuData,
+						 tops[0]->dimWidth,
 						 m_maxIndexData.gpuData,
 						 m_param.poolParam.kernelDim);
 	else
@@ -117,6 +112,7 @@ precision CPoolLayerGPU::feedforward(std::vector<Blob<precision>*>& bottoms,std:
 						 bottoms[0]->dimWidth,
 						 bottoms[0]->dataChannel,
 						 tops[0]->gpuData,
+						 tops[0]->dimWidth,
 						 m_param.poolParam.kernelDim);
 	cudaError_t cudaStat=cudaDeviceSynchronize();
 	CUDA_ERROR(cudaStat);
@@ -130,6 +126,7 @@ __global__ void backDeltaFromMaxPoolToConv(
 						int convDim,
 						int numFeature,
 						precision* poolDelta,
+						int poolDim,
 						precision* maxIndexData,
 						int poolArea
 						)
@@ -137,7 +134,6 @@ __global__ void backDeltaFromMaxPoolToConv(
 	int srcNo=blockIdx.x;
 	int featureNo=blockIdx.y;
 	int conv2=convDim*convDim;
-	int poolDim=convDim/poolArea;
 	int poolDim2=poolDim*poolDim;
 	precision* pConvDelta=convDelta+(srcNo*numFeature+featureNo)*conv2;
 	precision* pPoolData=poolDelta+(srcNo*numFeature+featureNo)*poolDim2;
@@ -164,13 +160,13 @@ __global__ void backDeltaFromAvgPoolToConv(
 						int convDim,
 						int numFeature,
 						precision* poolDelta,
+						int poolDim,
 						int poolArea
 						)
 {
 	int srcNo=blockIdx.x;
 	int featureNo=blockIdx.y;
 	int conv2=convDim*convDim;
-	int poolDim=convDim/poolArea;
 	int poolDim2=poolDim*poolDim;
 	int poolArea2=poolArea*poolArea;
 	precision* pConvDelta=convDelta+(srcNo*numFeature+featureNo)*conv2;
@@ -200,6 +196,7 @@ int CPoolLayerGPU::backpropagation(std::vector<Blob<precision>*>& tops,std::vect
 													   bottoms[0]->dimWidth,
 												       bottoms[0]->dataChannel,
 												       tops[0]->gpuDiff,
+													   tops[0]->dimWidth,
 												       m_maxIndexData.gpuData,
 												       m_param.poolParam.kernelDim
 												       );
@@ -210,6 +207,7 @@ int CPoolLayerGPU::backpropagation(std::vector<Blob<precision>*>& tops,std::vect
 													   bottoms[0]->dimWidth,
 													   bottoms[0]->dataChannel,
 													   tops[0]->gpuDiff,
+													   tops[0]->dimWidth,
 												       m_param.poolParam.kernelDim
 												      );
 	}

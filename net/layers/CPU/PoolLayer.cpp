@@ -5,12 +5,10 @@ int CPoolLayerCPU::setup(std::vector<Blob<precision>*>& inputs,std::vector<Blob<
 {
 
 	PoolParam poolParam=m_param.poolParam;
-
-	int dataWidthDim=ceil((float)inputs[0]->dimWidth/poolParam.kernelDim);
 	int dataHeightDim=ceil((float)inputs[0]->dimHeight/poolParam.kernelDim);
+	int dataWidthDim=ceil((float)inputs[0]->dimWidth/poolParam.kernelDim);
 	outputs[0]->create(inputs[0]->num,inputs[0]->dataChannel,dataHeightDim,dataWidthDim);
-
-	m_maxIndexData.create(inputs[0]->num,inputs[0]->dataChannel,inputs[0]->dimHeight/poolParam.kernelDim,inputs[0]->dimWidth/poolParam.kernelDim);
+	m_maxIndexData.create(inputs[0]->num,inputs[0]->dataChannel,dataHeightDim,dataWidthDim);
 
 	return NET_SUCCESS;
 }
@@ -26,6 +24,7 @@ struct poolData
 	int numFeature;
 	int batch;
 	int poolDim;
+	int preDim;
 };
 
 unsigned int __stdcall MaxPoolThread(LPVOID pM)
@@ -40,7 +39,7 @@ unsigned int __stdcall MaxPoolThread(LPVOID pM)
 	int kernelDim=pData->kernelDim;
 	int kernelDim2=kernelDim*kernelDim;
 	int poolDim=pData->poolDim;
-	int preDim=poolDim*kernelDim;
+	int preDim=pData->preDim;
 	int featureLeng=poolDim*poolDim;
 	int batchLeng=featureLeng*pData->numFeature;
 
@@ -61,9 +60,9 @@ unsigned int __stdcall MaxPoolThread(LPVOID pM)
 		precision* preFeatureData=srcData+batchNo*preBatchLeng+featureNo*preFeatureLeng;
 		precision max=0.0;
 		int       index=0;
-		for(int y=0;y<kernelDim;y++)
+		for(int y=0;y<kernelDim&&convY+y<preDim;y++)
 		{
-			for(int x=0;x<kernelDim;x++)
+			for(int x=0;x<kernelDim&&convX+x<preDim;x++)
 			{
 				precision tmp=preFeatureData[(convY+y)*preDim+convX+x];
 				if(tmp>max)
@@ -90,7 +89,7 @@ unsigned int __stdcall AvgPoolThread(LPVOID pM)
 	int kernelDim=pData->kernelDim;
 	int kernelDim2=kernelDim*kernelDim;
 	int poolDim=pData->poolDim;
-	int preDim=poolDim*kernelDim;
+	int preDim=pData->preDim;
 	int featureLeng=poolDim*poolDim;
 	int batchLeng=featureLeng*pData->numFeature;
 
@@ -110,8 +109,8 @@ unsigned int __stdcall AvgPoolThread(LPVOID pM)
 
 		precision* preFeatureData=srcData+batchNo*preBatchLeng+featureNo*preFeatureLeng;
 		precision sum=0;
-		for(int y=0;y<kernelDim;y++)
-			for(int x=0;x<kernelDim;x++)
+		for(int y=0;y<kernelDim&&convY+y<preDim;y++)
+			for(int x=0;x<kernelDim&&convX+x<preDim;x++)
 				sum+=preFeatureData[(convY+y)*preDim+convX+x];
 		poolData[tid]=sum/kernelDim2;
 	}
@@ -129,7 +128,8 @@ precision CPoolLayerCPU::feedforward(std::vector<Blob<precision>*>& bottoms,std:
 	mp.pPoolData=tops[0]->cpuData;
 	mp.pSrc=bottoms[0]->cpuData;
 	mp.batch=bottoms[0]->num;
-	mp.poolDim=bottoms[0]->dimWidth/m_param.poolParam.kernelDim;
+	mp.poolDim=tops[0]->dimWidth;
+	mp.preDim=bottoms[0]->dimWidth;
 
 	int poolDataLeng=mp.poolDim*mp.poolDim*mp.batch*mp.numFeature;
 	if(m_param.poolParam.poolType==MAX_POOL)
@@ -137,6 +137,7 @@ precision CPoolLayerCPU::feedforward(std::vector<Blob<precision>*>& bottoms,std:
 	else
 		pPP->start(AvgPoolThread,&mp,poolDataLeng);
 	pPP->wait();
+
 	return 0;
 };
 
@@ -149,6 +150,7 @@ struct poolBackData
 	int numFeature;
 	int kernelDim;
 	int poolDim;
+	int preDim;
 };
 
 unsigned int __stdcall MaxPoolBackpropagationThread(LPVOID pM)
@@ -165,7 +167,7 @@ unsigned int __stdcall MaxPoolBackpropagationThread(LPVOID pM)
 	int numFeature=pData->numFeature;
 	int kernelDim=pData->kernelDim;
 	int poolDim=pData->poolDim;
-	int preDim=poolDim*kernelDim;
+	int preDim=pData->preDim;
 	int featureLeng=poolDim*poolDim;
 	int batchLeng=featureLeng*pData->numFeature;
 
@@ -205,7 +207,7 @@ unsigned int __stdcall AvgPoolBackpropagationThread(LPVOID pM)
 	int kernelDim=pData->kernelDim;
 	int kernelDim2=kernelDim*kernelDim;
 	int poolDim=pData->poolDim;
-	int preDim=poolDim*kernelDim;
+	int preDim=pData->preDim;
 	int featureLeng=poolDim*poolDim;
 	int batchLeng=featureLeng*pData->numFeature;
 
@@ -235,7 +237,6 @@ int CPoolLayerCPU::backpropagation(std::vector<Blob<precision>*>& tops,std::vect
 {
 	int num=tops[0]->num;
 	int inputSize=bottoms[0]->size()/bottoms[0]->num;
-	int poolDim=bottoms[0]->dimWidth/m_param.poolParam.kernelDim;
 
 	memset(bottoms[0]->cpuDiff,0,sizeof(precision)*bottoms[0]->size());
 
@@ -243,13 +244,14 @@ int CPoolLayerCPU::backpropagation(std::vector<Blob<precision>*>& tops,std::vect
 	mpbd.batch=num;
 	mpbd.numFeature=bottoms[0]->dataChannel;
 	mpbd.kernelDim=m_param.poolParam.kernelDim;
-	mpbd.poolDim=poolDim;
+	mpbd.poolDim=tops[0]->dimWidth;
+	mpbd.preDim =bottoms[0]->dimWidth;
 	mpbd.maxIndex=m_maxIndexData.cpuData;
 	mpbd.preDelta=bottoms[0]->cpuDiff;
 	mpbd.poolDelta=tops[0]->cpuDiff;
 	
 	CProcessPool* pPP=CProcessPool::initInstance();
-	int poolDataLeng=num*mpbd.numFeature*poolDim*poolDim;
+	int poolDataLeng=num*mpbd.numFeature*tops[0]->dimWidth*tops[0]->dimWidth;
 	if(m_param.poolParam.poolType==MAX_POOL)
 		pPP->start(MaxPoolBackpropagationThread,&mpbd,poolDataLeng);
 	else
